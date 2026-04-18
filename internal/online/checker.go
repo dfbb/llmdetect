@@ -23,6 +23,9 @@ func CheckAll(cfg *config.Config, model string, endpoints []config.Endpoint) []R
 		wg.Add(1)
 		go func(idx int, endpoint config.Endpoint) {
 			defer wg.Done()
+			// Both NewClient's per-request timeout and the context's deadline are set to the same
+			// duration: per-request prevents a single attempt from hanging, context prevents
+			// accumulated retry time from exceeding the budget.
 			c := api.NewClient(endpoint.URL, endpoint.Key,
 				cfg.Concurrency.TimeoutSeconds, 1)
 			ctx, cancel := context.WithTimeout(context.Background(),

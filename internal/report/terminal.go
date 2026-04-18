@@ -2,11 +2,14 @@ package report
 
 import (
 	"fmt"
+	"sort"
+	"strings"
 	"time"
 
 	"github.com/fatih/color"
 
 	"github.com/ironarmor/llmdetect/config"
+	"github.com/ironarmor/llmdetect/internal/api"
 	"github.com/ironarmor/llmdetect/internal/detector"
 )
 
@@ -71,5 +74,70 @@ func PrintSummary(params ReportParams, cfg *config.Config) {
 		}
 		fmt.Printf("  %-22s  %-10.3f  %s\n", or_.Endpoint.Name, pr.TVDistance, mark)
 	}
+	fmt.Printf("%s\n", separator)
+
+	if params.Ledger != nil {
+		PrintTokenSummary(params.Ledger)
+	}
+}
+
+// formatInt formats an integer with comma thousands separators.
+func formatInt(n int) string {
+	s := fmt.Sprintf("%d", n)
+	if len(s) <= 3 {
+		return s
+	}
+	var result []byte
+	offset := len(s) % 3
+	for i, c := range []byte(s) {
+		if i > 0 && (i-offset)%3 == 0 {
+			result = append(result, ',')
+		}
+		result = append(result, c)
+	}
+	return string(result)
+}
+
+// PrintTokenSummary prints per-URL token consumption after a detect run.
+func PrintTokenSummary(ledger *api.TokenLedger) {
+	snap := ledger.Snapshot()
+	if len(snap) == 0 {
+		return
+	}
+	total := ledger.Total()
+
+	innerSep := strings.Repeat("─", 70)
+
+	fmt.Printf("\n%s\n%s\n", bold("Token Usage"), separator)
+	fmt.Printf("  %-45s  %8s  %6s  %8s\n", "URL", "Prompt", "Compl", "Total")
+	fmt.Printf("  %s\n", innerSep)
+
+	// Sort URLs for stable output
+	urls := make([]string, 0, len(snap))
+	for u := range snap {
+		urls = append(urls, u)
+	}
+	sort.Strings(urls)
+
+	for _, u := range urls {
+		u2 := snap[u]
+		display := u
+		if len(display) > 45 {
+			display = "..." + display[len(display)-42:]
+		}
+		fmt.Printf("  %-45s  %8s  %6s  %8s\n",
+			display,
+			formatInt(u2.PromptTokens),
+			formatInt(u2.CompletionTokens),
+			formatInt(u2.TotalTokens),
+		)
+	}
+	fmt.Printf("  %s\n", innerSep)
+	fmt.Printf("  %-45s  %8s  %6s  %8s\n",
+		bold("Total"),
+		formatInt(total.PromptTokens),
+		formatInt(total.CompletionTokens),
+		formatInt(total.TotalTokens),
+	)
 	fmt.Printf("%s\n", separator)
 }

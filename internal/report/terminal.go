@@ -125,12 +125,11 @@ func PrintTokenSummary(ledger *api.TokenLedger) {
 		if len(display) > 45 {
 			display = "..." + display[len(display)-42:]
 		}
-		fmt.Printf("  %-45s  %8s  %6s  %8s\n",
-			display,
-			formatInt(u2.PromptTokens),
-			formatInt(u2.CompletionTokens),
-			formatInt(u2.TotalTokens),
-		)
+		prompt, compl, total := formatInt(u2.PromptTokens), formatInt(u2.CompletionTokens), formatInt(u2.TotalTokens)
+		if u2.TotalTokens == 0 {
+			prompt, compl, total = "—", "—", "—"
+		}
+		fmt.Printf("  %-45s  %8s  %6s  %8s\n", display, prompt, compl, total)
 	}
 	fmt.Printf("  %s\n", innerSep)
 	fmt.Printf("  %-45s  %8s  %6s  %8s\n",

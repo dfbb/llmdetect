@@ -6,6 +6,7 @@ import (
 	"net/http/httptest"
 	"os"
 	"path/filepath"
+	"strings"
 	"testing"
 	"time"
 
@@ -109,11 +110,11 @@ channels: []
 	}
 
 	data, _ := os.ReadFile(yamlPath)
-	if !containsStr(string(data), "provider: openai") {
+	if !strings.Contains(string(data), "provider: openai") {
 		t.Errorf("provider not written to YAML:\n%s", data)
 	}
 	// Verify existing fields are preserved
-	if !containsStr(string(data), `name: "Test"`) {
+	if !strings.Contains(string(data), `name: "Test"`) {
 		t.Errorf("existing field lost after YAML rewrite:\n%s", data)
 	}
 }
@@ -141,11 +142,3 @@ func TestDetect_SkipsProbeIfProviderAlreadyInYAML(t *testing.T) {
 	}
 }
 
-func containsStr(s, sub string) bool {
-	for i := 0; i <= len(s)-len(sub); i++ {
-		if s[i:i+len(sub)] == sub {
-			return true
-		}
-	}
-	return false
-}

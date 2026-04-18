@@ -118,7 +118,7 @@ func WriteJSON(params ReportParams, dir string) (string, error) {
 				continue
 			}
 			if u, ok := snap[or_.Endpoint.URL]; ok && u.TotalTokens > 0 {
-				results[i].TokensUsed = &JSONTokenUsage{
+				rep.Results[i].TokensUsed = &JSONTokenUsage{
 					Prompt:     u.PromptTokens,
 					Completion: u.CompletionTokens,
 					Total:      u.TotalTokens,

@@ -88,7 +88,9 @@ func TestWriteJSON_OfflineChannelHasNoTokensUsed(t *testing.T) {
 
 	data, _ := os.ReadFile(path)
 	var out map[string]any
-	json.Unmarshal(data, &out)
+	if err := json.Unmarshal(data, &out); err != nil {
+		t.Fatalf("unmarshal report: %v", err)
+	}
 
 	results, _ := out["results"].([]any)
 	ch1, _ := results[0].(map[string]any)

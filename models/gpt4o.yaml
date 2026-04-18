@@ -1,0 +1,14 @@
+model: gpt-4o
+
+official:
+  name: "OpenAI Official"
+  url: "https://api.openai.com/v1"
+  key: "sk-placeholder"
+
+channels:
+  - name: "Channel-A"
+    url: "https://api.example-a.com/v1"
+    key: "sk-placeholder-a"
+  - name: "Channel-B"
+    url: "https://api.example-b.com/v1"
+    key: "sk-placeholder-b"

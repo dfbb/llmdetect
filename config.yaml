@@ -1,0 +1,17 @@
+cache:
+  ttl_hours: 1
+
+detection:
+  border_inputs: 20
+  discovery_candidates: 5000
+  queries_per_input: 30
+  tv_threshold: 0.4
+
+concurrency:
+  max_workers_per_channel: 10
+  rate_limit_rps: 5
+  timeout_seconds: 15
+  max_retries: 3
+
+output:
+  report_dir: "./reports"

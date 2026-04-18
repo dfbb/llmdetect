@@ -13,15 +13,23 @@ import (
 	"github.com/ironarmor/llmdetect/internal/online"
 )
 
+type JSONTokenUsage struct {
+	Prompt     int `json:"prompt"`
+	Completion int `json:"completion"`
+	Total      int `json:"total"`
+}
+
 type JSONReport struct {
-	Model             string              `json:"model"`
-	RunAt             time.Time           `json:"run_at"`
-	DurationSeconds   float64             `json:"duration_seconds"`
-	Config            JSONReportConfig    `json:"config"`
-	BorderInputsFound int                 `json:"border_inputs_found,omitempty"`
-	CacheStale        bool                `json:"cache_stale,omitempty"`
-	CacheAgeMinutes   int                 `json:"cache_age_minutes,omitempty"`
-	Results           []JSONChannelResult `json:"results"`
+	Model             string                     `json:"model"`
+	RunAt             time.Time                  `json:"run_at"`
+	DurationSeconds   float64                    `json:"duration_seconds"`
+	Config            JSONReportConfig           `json:"config"`
+	BorderInputsFound int                        `json:"border_inputs_found,omitempty"`
+	CacheStale        bool                       `json:"cache_stale,omitempty"`
+	CacheAgeMinutes   int                        `json:"cache_age_minutes,omitempty"`
+	Results           []JSONChannelResult        `json:"results"`
+	TokenSummary      map[string]JSONTokenUsage  `json:"token_summary,omitempty"`
+	TotalTokens       *int                       `json:"total_tokens,omitempty"`
 }
 
 type JSONReportConfig struct {
@@ -31,12 +39,13 @@ type JSONReportConfig struct {
 }
 
 type JSONChannelResult struct {
-	Name       string    `json:"name"`
-	URL        string    `json:"url"`
-	Online     bool      `json:"online"`
-	TVDistance *float64  `json:"tv_distance"`
-	Verdict    string    `json:"verdict"`
-	PerInputTV []float64 `json:"per_input_tv,omitempty"`
+	Name       string          `json:"name"`
+	URL        string          `json:"url"`
+	Online     bool            `json:"online"`
+	TVDistance *float64        `json:"tv_distance"`
+	Verdict    string          `json:"verdict"`
+	PerInputTV []float64       `json:"per_input_tv,omitempty"`
+	TokensUsed *JSONTokenUsage `json:"tokens_used,omitempty"`
 }
 
 type ReportParams struct {
@@ -100,6 +109,34 @@ func WriteJSON(params ReportParams, dir string) (string, error) {
 	if params.CacheStale {
 		rep.CacheStale = true
 		rep.CacheAgeMinutes = params.CacheAgeMinutes
+	}
+
+	if params.Ledger != nil {
+		snap := params.Ledger.Snapshot()
+		for i, or_ := range params.OnlineResults {
+			if !or_.Online {
+				continue
+			}
+			if u, ok := snap[or_.Endpoint.URL]; ok && u.TotalTokens > 0 {
+				results[i].TokensUsed = &JSONTokenUsage{
+					Prompt:     u.PromptTokens,
+					Completion: u.CompletionTokens,
+					Total:      u.TotalTokens,
+				}
+			}
+		}
+		summary := make(map[string]JSONTokenUsage, len(snap))
+		for url, u := range snap {
+			summary[url] = JSONTokenUsage{
+				Prompt:     u.PromptTokens,
+				Completion: u.CompletionTokens,
+				Total:      u.TotalTokens,
+			}
+		}
+		rep.TokenSummary = summary
+		total := params.Ledger.Total()
+		t := total.TotalTokens
+		rep.TotalTokens = &t
 	}
 
 	ts := params.RunAt.Format("2006-01-02T15-04-05")

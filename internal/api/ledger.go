@@ -32,7 +32,7 @@ func (l *TokenLedger) Add(url string, u provider.TokenUsage) {
 	}
 }
 
-// Snapshot returns a copy of all accumulated usage. Safe to call after all goroutines complete.
+// Snapshot returns a copy of all accumulated usage. Safe to call concurrently with Add.
 func (l *TokenLedger) Snapshot() map[string]provider.TokenUsage {
 	l.mu.Lock()
 	defer l.mu.Unlock()

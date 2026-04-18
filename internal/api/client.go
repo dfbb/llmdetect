@@ -14,7 +14,6 @@ import (
 type Client struct {
 	baseURL    string
 	apiKey     string
-	timeout    time.Duration
 	maxRetries int
 	http       *http.Client
 }
@@ -23,7 +22,6 @@ func NewClient(baseURL, apiKey string, timeoutSeconds, maxRetries int) *Client {
 	return &Client{
 		baseURL:    baseURL,
 		apiKey:     apiKey,
-		timeout:    time.Duration(timeoutSeconds) * time.Second,
 		maxRetries: maxRetries,
 		http:       &http.Client{Timeout: time.Duration(timeoutSeconds) * time.Second},
 	}
@@ -51,12 +49,15 @@ type chatResponse struct {
 
 // QueryOnce sends a single chat completion request and returns the response token.
 func (c *Client) QueryOnce(ctx context.Context, model, prompt string) (string, error) {
-	body, _ := json.Marshal(chatRequest{
+	body, err := json.Marshal(chatRequest{
 		Model:       model,
 		Messages:    []chatMessage{{Role: "user", Content: prompt}},
 		MaxTokens:   1,
 		Temperature: 0,
 	})
+	if err != nil {
+		return "", fmt.Errorf("marshal request: %w", err)
+	}
 
 	var lastErr error
 	for attempt := 0; attempt <= c.maxRetries; attempt++ {
@@ -82,26 +83,30 @@ func (c *Client) QueryOnce(ctx context.Context, model, prompt string) (string, e
 			lastErr = err
 			continue
 		}
-		defer resp.Body.Close()
 
 		if resp.StatusCode == http.StatusUnauthorized {
+			resp.Body.Close()
 			return "", fmt.Errorf("API returned 401 unauthorized — check your API key for %s", c.baseURL)
 		}
 		if resp.StatusCode >= 500 {
 			b, _ := io.ReadAll(resp.Body)
+			resp.Body.Close()
 			lastErr = fmt.Errorf("server error %d: %s", resp.StatusCode, string(b))
 			continue
 		}
 		if resp.StatusCode != http.StatusOK {
 			b, _ := io.ReadAll(resp.Body)
+			resp.Body.Close()
 			return "", fmt.Errorf("unexpected status %d: %s", resp.StatusCode, string(b))
 		}
 
 		var result chatResponse
 		if err := json.NewDecoder(resp.Body).Decode(&result); err != nil {
+			resp.Body.Close()
 			lastErr = fmt.Errorf("decode response: %w", err)
 			continue
 		}
+		resp.Body.Close()
 		if len(result.Choices) == 0 {
 			return "", fmt.Errorf("empty choices in response")
 		}

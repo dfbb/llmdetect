@@ -59,7 +59,7 @@ func Discover(ctx context.Context, cfg *config.Config, model *config.ModelConfig
 		outputs := make(map[string]struct{})
 		for i := 0; i < probeRounds; i++ {
 			if err := limiter.Wait(ctx); err != nil {
-				return nil, ctx.Err()
+				return nil, err
 			}
 			resp, err := client.QueryOnce(ctx, model.Model, tok)
 			if err != nil {
@@ -78,7 +78,6 @@ func Discover(ctx context.Context, cfg *config.Config, model *config.ModelConfig
 
 	// Phase 1b: build official distribution for each BI using parallel workers.
 	sem := make(chan struct{}, cfg.Concurrency.MaxWorkersPerChannel)
-	var mu sync.Mutex
 	bis := make([]cache.BorderInput, len(found))
 
 	var wg sync.WaitGroup
@@ -101,12 +100,10 @@ func Discover(ctx context.Context, cfg *config.Config, model *config.ModelConfig
 				dist[resp]++
 			}
 
-			mu.Lock()
 			bis[idx] = cache.BorderInput{
 				Prompt:               prompt,
 				OfficialDistribution: dist,
 			}
-			mu.Unlock()
 		}(i, cand.prompt)
 	}
 	wg.Wait()

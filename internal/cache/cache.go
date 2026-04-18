@@ -53,7 +53,7 @@ func (c *Cache) Load() (*CacheFile, error) {
 	}
 	var cf CacheFile
 	if err := json.Unmarshal(data, &cf); err != nil {
-		os.Remove(c.path)
+		_ = os.Remove(c.path)
 		return nil, ErrCorrupted
 	}
 	return &cf, nil
@@ -65,7 +65,7 @@ func (c *Cache) IsExpired() bool {
 	if err != nil {
 		return true
 	}
-	return time.Now().After(cf.ExpiresAt)
+	return time.Now().UTC().After(cf.ExpiresAt)
 }
 
 // TimeNow returns the current UTC time. Provided for use in test helpers.

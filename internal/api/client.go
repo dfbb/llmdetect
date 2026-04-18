@@ -3,12 +3,13 @@ package api
 import (
 	"bytes"
 	"context"
-	"encoding/json"
 	"fmt"
 	"io"
 	"math"
 	"net/http"
 	"time"
+
+	"github.com/ironarmor/llmdetect/internal/provider"
 )
 
 type Client struct {
@@ -16,47 +17,34 @@ type Client struct {
 	apiKey     string
 	maxRetries int
 	http       *http.Client
+	adapter    provider.Adapter
+	ledger     *TokenLedger
 }
 
+// NewClient returns a Client using the OpenAI adapter with no token tracking.
+// Existing callers (online-check, discover, probe) use this for backward compatibility.
 func NewClient(baseURL, apiKey string, timeoutSeconds, maxRetries int) *Client {
+	return NewClientFull(baseURL, apiKey, timeoutSeconds, maxRetries, &provider.OpenAIAdapter{}, nil)
+}
+
+// NewClientFull returns a Client with a specific adapter and optional TokenLedger.
+func NewClientFull(baseURL, apiKey string, timeoutSeconds, maxRetries int, a provider.Adapter, ledger *TokenLedger) *Client {
 	return &Client{
 		baseURL:    baseURL,
 		apiKey:     apiKey,
 		maxRetries: maxRetries,
 		http:       &http.Client{Timeout: time.Duration(timeoutSeconds) * time.Second},
+		adapter:    a,
+		ledger:     ledger,
 	}
 }
 
-type chatRequest struct {
-	Model       string        `json:"model"`
-	Messages    []chatMessage `json:"messages"`
-	MaxTokens   int           `json:"max_tokens"`
-	Temperature float64       `json:"temperature"`
-}
-
-type chatMessage struct {
-	Role    string `json:"role"`
-	Content string `json:"content"`
-}
-
-type chatResponse struct {
-	Choices []struct {
-		Message struct {
-			Content string `json:"content"`
-		} `json:"message"`
-	} `json:"choices"`
-}
-
-// QueryOnce sends a single chat completion request and returns the response token.
+// QueryOnce sends a single request using the client's adapter and returns the output token.
+// Token usage is accumulated to the ledger if one is configured.
 func (c *Client) QueryOnce(ctx context.Context, model, prompt string) (string, error) {
-	body, err := json.Marshal(chatRequest{
-		Model:       model,
-		Messages:    []chatMessage{{Role: "user", Content: prompt}},
-		MaxTokens:   1,
-		Temperature: 0,
-	})
+	body, err := c.adapter.BuildRequest(model, prompt, 1)
 	if err != nil {
-		return "", fmt.Errorf("marshal request: %w", err)
+		return "", fmt.Errorf("build request: %w", err)
 	}
 
 	var lastErr error
@@ -71,12 +59,13 @@ func (c *Client) QueryOnce(ctx context.Context, model, prompt string) (string, e
 		}
 
 		req, err := http.NewRequestWithContext(ctx, http.MethodPost,
-			c.baseURL+"/v1/chat/completions", bytes.NewReader(body))
+			c.baseURL+c.adapter.RequestPath(), bytes.NewReader(body))
 		if err != nil {
 			return "", err
 		}
-		req.Header.Set("Authorization", "Bearer "+c.apiKey)
-		req.Header.Set("Content-Type", "application/json")
+		for k, v := range c.adapter.Headers(c.apiKey) {
+			req.Header.Set(k, v)
+		}
 
 		resp, err := c.http.Do(req)
 		if err != nil {
@@ -100,22 +89,27 @@ func (c *Client) QueryOnce(ctx context.Context, model, prompt string) (string, e
 			return "", fmt.Errorf("unexpected status %d: %s", resp.StatusCode, string(b))
 		}
 
-		var result chatResponse
-		if err := json.NewDecoder(resp.Body).Decode(&result); err != nil {
-			resp.Body.Close()
-			lastErr = fmt.Errorf("decode response: %w", err)
+		b, err := io.ReadAll(resp.Body)
+		resp.Body.Close()
+		if err != nil {
+			lastErr = fmt.Errorf("read response: %w", err)
 			continue
 		}
-		resp.Body.Close()
-		if len(result.Choices) == 0 {
-			return "", fmt.Errorf("empty choices in response")
+
+		token, usage, err := c.adapter.ParseResponse(b)
+		if err != nil {
+			lastErr = err
+			continue
 		}
-		return result.Choices[0].Message.Content, nil
+		if c.ledger != nil {
+			c.ledger.Add(c.baseURL, usage)
+		}
+		return token, nil
 	}
 	return "", fmt.Errorf("all retries failed: %w", lastErr)
 }
 
-// Ping sends a minimal request and returns true if the endpoint responds with 200.
+// Ping sends a minimal request and returns true if the endpoint responds with HTTP 200.
 func (c *Client) Ping(ctx context.Context, model string) bool {
 	_, err := c.QueryOnce(ctx, model, "hi")
 	return err == nil

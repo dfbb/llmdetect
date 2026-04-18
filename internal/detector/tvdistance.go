@@ -5,8 +5,12 @@ package detector
 func ComputeTV(p, q map[string]int) float64 {
 	totalP := countSum(p)
 	totalQ := countSum(q)
-	if totalP == 0 || totalQ == 0 {
+	if totalP == 0 && totalQ == 0 {
 		return 0
+	}
+	if totalP == 0 || totalQ == 0 {
+		// One distribution is empty — treat as maximum distance
+		return 1.0
 	}
 
 	keys := make(map[string]struct{})

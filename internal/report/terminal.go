@@ -8,7 +8,6 @@ import (
 
 	"github.com/ironarmor/llmdetect/config"
 	"github.com/ironarmor/llmdetect/internal/detector"
-	"github.com/ironarmor/llmdetect/internal/online"
 )
 
 var (
@@ -74,7 +73,3 @@ func PrintSummary(params ReportParams, cfg *config.Config) {
 	}
 	fmt.Printf("%s\n", separator)
 }
-
-// Ensure imports are used even if only called from other packages.
-var _ = (*online.Result)(nil)
-var _ = (*detector.ChannelResult)(nil)

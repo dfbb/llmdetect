@@ -50,3 +50,20 @@ func TestAverageTV_Empty(t *testing.T) {
 		t.Errorf("AverageTV(nil) = %f, want 0", got)
 	}
 }
+
+func TestComputeTV_EmptyChannel(t *testing.T) {
+	// Official has data, channel returned nothing (all queries failed)
+	p := map[string]int{"world": 10}
+	q := map[string]int{}
+	got := detector.ComputeTV(p, q)
+	if math.Abs(got-1.0) > 1e-9 {
+		t.Errorf("empty channel: TV = %f, want 1.0", got)
+	}
+}
+
+func TestComputeTV_BothEmpty(t *testing.T) {
+	got := detector.ComputeTV(map[string]int{}, map[string]int{})
+	if got != 0 {
+		t.Errorf("both empty: TV = %f, want 0", got)
+	}
+}

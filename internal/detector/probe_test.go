@@ -53,3 +53,36 @@ func TestProbeChannels_TVDistance(t *testing.T) {
 		t.Errorf("expected verdict=original, got %s", r.Verdict)
 	}
 }
+
+func TestProbeChannels_Spoofed(t *testing.T) {
+	// Channel always returns "Z" — completely different from official "world"
+	chanSrv := identicalServer(t, "Z")
+	defer chanSrv.Close()
+
+	cfg := &config.Config{
+		Detection: config.DetectionConfig{QueriesPerInput: 5, TVThreshold: 0.4},
+		Concurrency: config.ConcurrencyConfig{
+			MaxWorkersPerChannel: 2, RateLimitRPS: 100,
+			TimeoutSeconds: 5, MaxRetries: 1,
+		},
+	}
+	model := &config.ModelConfig{Model: "gpt-4o"}
+	channels := []config.Endpoint{
+		{Name: "spoofed", URL: chanSrv.URL, Key: "sk-test"},
+	}
+	bis := []cache.BorderInput{
+		{Prompt: "hello", OfficialDistribution: map[string]int{"world": 10}},
+	}
+
+	results := detector.ProbeChannels(context.Background(), cfg, model, channels, bis)
+	if len(results) != 1 {
+		t.Fatalf("expected 1 result, got %d", len(results))
+	}
+	r := results[0]
+	if r.Verdict != "spoofed" {
+		t.Errorf("expected verdict=spoofed, got %s (TV=%.3f)", r.Verdict, r.TVDistance)
+	}
+	if r.TVDistance < cfg.Detection.TVThreshold {
+		t.Errorf("spoofed channel: TV = %f, expected >= threshold %f", r.TVDistance, cfg.Detection.TVThreshold)
+	}
+}

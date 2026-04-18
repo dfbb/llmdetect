@@ -23,7 +23,8 @@ type ChannelResult struct {
 // ProbeChannels runs Phase 2: probe each channel and compute TV distance vs official distribution.
 // Channels with different root domains run in parallel; same root domain run serially.
 func ProbeChannels(ctx context.Context, cfg *config.Config, model *config.ModelConfig,
-	channels []config.Endpoint, bis []cache.BorderInput) []ChannelResult {
+	channels []config.Endpoint, bis []cache.BorderInput,
+	newClient func(ep config.Endpoint) *api.Client) []ChannelResult {
 
 	groups := groupByDomain(channels)
 
@@ -36,7 +37,7 @@ func ProbeChannels(ctx context.Context, cfg *config.Config, model *config.ModelC
 		go func(grp []config.Endpoint) {
 			defer wg.Done()
 			for _, ch := range grp {
-				r := probeOne(ctx, cfg, model, ch, bis)
+				r := probeOne(ctx, cfg, model, ch, bis, newClient(ch))
 				mu.Lock()
 				allResults = append(allResults, r)
 				mu.Unlock()
@@ -48,9 +49,8 @@ func ProbeChannels(ctx context.Context, cfg *config.Config, model *config.ModelC
 }
 
 func probeOne(ctx context.Context, cfg *config.Config, model *config.ModelConfig,
-	ch config.Endpoint, bis []cache.BorderInput) ChannelResult {
+	ch config.Endpoint, bis []cache.BorderInput, client *api.Client) ChannelResult {
 
-	client := api.NewClient(ch.URL, ch.Key, cfg.Concurrency.TimeoutSeconds, cfg.Concurrency.MaxRetries)
 	limiter := rate.NewLimiter(rate.Limit(cfg.Concurrency.RateLimitRPS), cfg.Concurrency.MaxWorkersPerChannel)
 	sem := make(chan struct{}, cfg.Concurrency.MaxWorkersPerChannel)
 

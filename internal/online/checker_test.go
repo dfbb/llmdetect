@@ -7,6 +7,7 @@ import (
 	"testing"
 
 	"github.com/ironarmor/llmdetect/config"
+	"github.com/ironarmor/llmdetect/internal/api"
 	"github.com/ironarmor/llmdetect/internal/online"
 )
 
@@ -39,7 +40,10 @@ func TestCheckAll_PartialOnline(t *testing.T) {
 		{Name: "offline", URL: offlineSrv.URL, Key: "sk-test"},
 	}
 
-	results := online.CheckAll(cfg, "gpt-4o", endpoints)
+	newClient := func(ep config.Endpoint) *api.Client {
+		return api.NewClient(ep.URL, ep.Key, cfg.Concurrency.TimeoutSeconds, 1)
+	}
+	results := online.CheckAll(cfg, "gpt-4o", endpoints, newClient)
 	if len(results) != 2 {
 		t.Fatalf("expected 2 results, got %d", len(results))
 	}

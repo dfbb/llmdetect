@@ -8,6 +8,7 @@ import (
 	"testing"
 
 	"github.com/ironarmor/llmdetect/config"
+	"github.com/ironarmor/llmdetect/internal/api"
 	"github.com/ironarmor/llmdetect/internal/cache"
 	"github.com/ironarmor/llmdetect/internal/detector"
 )
@@ -41,7 +42,10 @@ func TestProbeChannels_TVDistance(t *testing.T) {
 		{Prompt: "hello", OfficialDistribution: map[string]int{"world": 10}},
 	}
 
-	results := detector.ProbeChannels(context.Background(), cfg, model, channels, bis)
+	newClient := func(ep config.Endpoint) *api.Client {
+		return api.NewClient(ep.URL, ep.Key, cfg.Concurrency.TimeoutSeconds, cfg.Concurrency.MaxRetries)
+	}
+	results := detector.ProbeChannels(context.Background(), cfg, model, channels, bis, newClient)
 	if len(results) != 1 {
 		t.Fatalf("expected 1 result, got %d", len(results))
 	}
@@ -74,7 +78,10 @@ func TestProbeChannels_Spoofed(t *testing.T) {
 		{Prompt: "hello", OfficialDistribution: map[string]int{"world": 10}},
 	}
 
-	results := detector.ProbeChannels(context.Background(), cfg, model, channels, bis)
+	newClient := func(ep config.Endpoint) *api.Client {
+		return api.NewClient(ep.URL, ep.Key, cfg.Concurrency.TimeoutSeconds, cfg.Concurrency.MaxRetries)
+	}
+	results := detector.ProbeChannels(context.Background(), cfg, model, channels, bis, newClient)
 	if len(results) != 1 {
 		t.Fatalf("expected 1 result, got %d", len(results))
 	}

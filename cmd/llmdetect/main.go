@@ -70,7 +70,10 @@ func cmdOnlineCheck() *cobra.Command {
 		Run: func(cmd *cobra.Command, args []string) {
 			cfg, model := loadBoth()
 			all := append([]config.Endpoint{model.Official}, model.Channels...)
-			results := online.CheckAll(cfg, model.Model, all)
+			newClient := func(ep config.Endpoint) *api.Client {
+				return api.NewClient(ep.URL, ep.Key, cfg.Concurrency.TimeoutSeconds, 1)
+			}
+			results := online.CheckAll(cfg, model.Model, all, newClient)
 			for _, r := range results {
 				mark := "✓"
 				if !r.Online {
@@ -134,7 +137,10 @@ func cmdDetect() *cobra.Command {
 
 			// Step 1: online-check
 			all := append([]config.Endpoint{model.Official}, model.Channels...)
-			onlineResults := online.CheckAll(cfg, model.Model, all)
+			newClientDefault := func(ep config.Endpoint) *api.Client {
+				return api.NewClient(ep.URL, ep.Key, cfg.Concurrency.TimeoutSeconds, 1)
+			}
+			onlineResults := online.CheckAll(cfg, model.Model, all, newClientDefault)
 			var onlineChannels []config.Endpoint
 			officialURL := model.Official.URL
 			for _, r := range onlineResults {
@@ -190,7 +196,10 @@ func cmdDetect() *cobra.Command {
 			}
 
 			// Step 3: probe channels
-			probeResults := detector.ProbeChannels(ctx, cfg, model, onlineChannels, cf.BorderInputs)
+			probeResults := detector.ProbeChannels(ctx, cfg, model, onlineChannels, cf.BorderInputs,
+				func(ep config.Endpoint) *api.Client {
+					return api.NewClient(ep.URL, ep.Key, cfg.Concurrency.TimeoutSeconds, cfg.Concurrency.MaxRetries)
+				})
 
 			duration := time.Since(startTime).Seconds()
 

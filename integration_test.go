@@ -75,7 +75,10 @@ func TestEndToEnd_CacheHit(t *testing.T) {
 
 	// Step 1: online-check — both official and channel should be online
 	allEndpoints := append([]config.Endpoint{model.Official}, model.Channels...)
-	onlineResults := online.CheckAll(cfg, model.Model, allEndpoints)
+	onlineNewClient := func(ep config.Endpoint) *api.Client {
+		return api.NewClient(ep.URL, ep.Key, cfg.Concurrency.TimeoutSeconds, 1)
+	}
+	onlineResults := online.CheckAll(cfg, model.Model, allEndpoints, onlineNewClient)
 	for _, r := range onlineResults {
 		if !r.Online {
 			t.Errorf("expected %s to be online", r.Endpoint.Name)
@@ -92,7 +95,10 @@ func TestEndToEnd_CacheHit(t *testing.T) {
 	}
 
 	// Step 3: probe channels — channel always returns "X", same as official dist
-	probeResults := detector.ProbeChannels(context.Background(), cfg, model, model.Channels, loaded.BorderInputs)
+	probeNewClient := func(ep config.Endpoint) *api.Client {
+		return api.NewClient(ep.URL, ep.Key, cfg.Concurrency.TimeoutSeconds, cfg.Concurrency.MaxRetries)
+	}
+	probeResults := detector.ProbeChannels(context.Background(), cfg, model, model.Channels, loaded.BorderInputs, probeNewClient)
 	if len(probeResults) != 1 {
 		t.Fatalf("expected 1 probe result, got %d", len(probeResults))
 	}

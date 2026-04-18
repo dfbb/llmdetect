@@ -16,7 +16,8 @@ type Result struct {
 }
 
 // CheckAll concurrently pings all given endpoints and returns one Result per endpoint.
-func CheckAll(cfg *config.Config, model string, endpoints []config.Endpoint) []Result {
+func CheckAll(cfg *config.Config, model string, endpoints []config.Endpoint,
+	newClient func(ep config.Endpoint) *api.Client) []Result {
 	results := make([]Result, len(endpoints))
 	var wg sync.WaitGroup
 	for i, ep := range endpoints {
@@ -26,8 +27,7 @@ func CheckAll(cfg *config.Config, model string, endpoints []config.Endpoint) []R
 			// Both NewClient's per-request timeout and the context's deadline are set to the same
 			// duration: per-request prevents a single attempt from hanging, context prevents
 			// accumulated retry time from exceeding the budget.
-			c := api.NewClient(endpoint.URL, endpoint.Key,
-				cfg.Concurrency.TimeoutSeconds, 1)
+			c := newClient(endpoint)
 			ctx, cancel := context.WithTimeout(context.Background(),
 				time.Duration(cfg.Concurrency.TimeoutSeconds)*time.Second)
 			defer cancel()

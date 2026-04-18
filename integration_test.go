@@ -12,6 +12,7 @@ import (
 	"time"
 
 	"github.com/ironarmor/llmdetect/config"
+	"github.com/ironarmor/llmdetect/internal/api"
 	"github.com/ironarmor/llmdetect/internal/cache"
 	"github.com/ironarmor/llmdetect/internal/detector"
 	"github.com/ironarmor/llmdetect/internal/online"
@@ -168,7 +169,9 @@ func TestEndToEnd_CacheExpiry(t *testing.T) {
 	}
 
 	toks := tokens.Load()
-	result, err := detector.Discover(context.Background(), cfg, model, toks)
+	officialClient := api.NewClient(model.Official.URL, model.Official.Key,
+		cfg.Concurrency.TimeoutSeconds, cfg.Concurrency.MaxRetries)
+	result, err := detector.Discover(context.Background(), cfg, model, toks, officialClient)
 	if err != nil {
 		t.Fatalf("Discover: %v", err)
 	}

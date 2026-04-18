@@ -11,6 +11,7 @@ import (
 	"github.com/spf13/cobra"
 
 	"github.com/ironarmor/llmdetect/config"
+	"github.com/ironarmor/llmdetect/internal/api"
 	"github.com/ironarmor/llmdetect/internal/cache"
 	"github.com/ironarmor/llmdetect/internal/detector"
 	"github.com/ironarmor/llmdetect/internal/online"
@@ -91,7 +92,9 @@ func cmdRefreshCache() *cobra.Command {
 			ctx := context.Background()
 
 			fmt.Println("Discovering border inputs from official API...")
-			result, err := detector.Discover(ctx, cfg, model, tokenList)
+			officialClient := api.NewClient(model.Official.URL, model.Official.Key,
+				cfg.Concurrency.TimeoutSeconds, cfg.Concurrency.MaxRetries)
+			result, err := detector.Discover(ctx, cfg, model, tokenList, officialClient)
 			if err != nil {
 				fmt.Fprintf(os.Stderr, "discovery failed: %v\n", err)
 				os.Exit(1)
@@ -148,7 +151,9 @@ func cmdDetect() *cobra.Command {
 
 			if c.IsExpired() {
 				tokenList := tokens.Load()
-				result, err := detector.Discover(ctx, cfg, model, tokenList)
+				officialClient := api.NewClient(model.Official.URL, model.Official.Key,
+					cfg.Concurrency.TimeoutSeconds, cfg.Concurrency.MaxRetries)
+				result, err := detector.Discover(ctx, cfg, model, tokenList, officialClient)
 				if err != nil {
 					// stale cache fallback
 					old, loadErr := c.Load()

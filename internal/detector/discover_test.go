@@ -9,6 +9,7 @@ import (
 	"testing"
 
 	"github.com/ironarmor/llmdetect/config"
+	"github.com/ironarmor/llmdetect/internal/api"
 	"github.com/ironarmor/llmdetect/internal/detector"
 )
 
@@ -66,7 +67,9 @@ func TestDiscover_EarlyStop(t *testing.T) {
 	cfg, model := discoveryCfg(srv.URL, "sk-test")
 	tokens := []string{"a", "b", "c", "d", "e", "f", "g", "h"}
 
-	result, err := detector.Discover(context.Background(), cfg, model, tokens)
+	client := api.NewClient(model.Official.URL, model.Official.Key,
+		cfg.Concurrency.TimeoutSeconds, cfg.Concurrency.MaxRetries)
+	result, err := detector.Discover(context.Background(), cfg, model, tokens, client)
 	if err != nil {
 		t.Fatalf("Discover: %v", err)
 	}
@@ -82,7 +85,9 @@ func TestDiscover_Shortage(t *testing.T) {
 	cfg, model := discoveryCfg(srv.URL, "sk-test")
 	tokens := []string{"a", "b", "c"}
 
-	result, err := detector.Discover(context.Background(), cfg, model, tokens)
+	client := api.NewClient(model.Official.URL, model.Official.Key,
+		cfg.Concurrency.TimeoutSeconds, cfg.Concurrency.MaxRetries)
+	result, err := detector.Discover(context.Background(), cfg, model, tokens, client)
 	if err != nil {
 		t.Fatalf("Discover: %v", err)
 	}

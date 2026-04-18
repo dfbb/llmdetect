@@ -31,10 +31,7 @@ type biCandidate struct {
 //
 // Phase 1b: For each confirmed BI, build an official distribution by querying
 // QueriesPerInput times in parallel (bounded by MaxWorkersPerChannel).
-func Discover(ctx context.Context, cfg *config.Config, model *config.ModelConfig, tokens []string) (*DiscoverResult, error) {
-	client := api.NewClient(model.Official.URL, model.Official.Key,
-		cfg.Concurrency.TimeoutSeconds, cfg.Concurrency.MaxRetries)
-
+func Discover(ctx context.Context, cfg *config.Config, model *config.ModelConfig, tokens []string, client *api.Client) (*DiscoverResult, error) {
 	burst := cfg.Concurrency.MaxWorkersPerChannel
 	if burst < 1 {
 		burst = 1

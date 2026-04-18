@@ -7,6 +7,18 @@ import (
 	"gopkg.in/yaml.v3"
 )
 
+func validateEndpointProvider(ep Endpoint, label string) error {
+	if ep.Provider == "" {
+		return nil
+	}
+	switch ep.Provider {
+	case "openai", "anthropic":
+		return nil
+	default:
+		return fmt.Errorf("endpoint %q has invalid provider %q: must be openai or anthropic", label, ep.Provider)
+	}
+}
+
 func LoadConfig(path string) (*Config, error) {
 	data, err := os.ReadFile(path)
 	if err != nil {
@@ -36,6 +48,14 @@ func LoadModel(path string) (*ModelConfig, error) {
 	}
 	if m.Official.Key == "" {
 		return nil, fmt.Errorf("model.official.key is required in %s", path)
+	}
+	if err := validateEndpointProvider(m.Official, "official"); err != nil {
+		return nil, err
+	}
+	for _, ch := range m.Channels {
+		if err := validateEndpointProvider(ch, ch.Name); err != nil {
+			return nil, err
+		}
 	}
 	return &m, nil
 }

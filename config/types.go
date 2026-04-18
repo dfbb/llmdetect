@@ -30,9 +30,10 @@ type Config struct {
 }
 
 type Endpoint struct {
-	Name string `yaml:"name"`
-	URL  string `yaml:"url"`
-	Key  string `yaml:"key"`
+	Name     string `yaml:"name"`
+	URL      string `yaml:"url"`
+	Key      string `yaml:"key"`
+	Provider string `yaml:"provider,omitempty"`
 }
 
 type ModelConfig struct {

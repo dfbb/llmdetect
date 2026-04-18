@@ -77,3 +77,55 @@ channels: []
 		t.Fatal("expected error for empty model/url")
 	}
 }
+
+func TestLoadModel_InvalidProvider(t *testing.T) {
+	dir := t.TempDir()
+	path := filepath.Join(dir, "model.yaml")
+	content := `
+model: gpt-4o
+official:
+  name: Test
+  url: https://api.openai.com/v1
+  key: sk-test
+  provider: gemini
+channels: []
+`
+	if err := os.WriteFile(path, []byte(content), 0644); err != nil {
+		t.Fatal(err)
+	}
+	_, err := config.LoadModel(path)
+	if err == nil {
+		t.Fatal("expected error for invalid provider value")
+	}
+}
+
+func TestLoadModel_ValidProvider(t *testing.T) {
+	dir := t.TempDir()
+	path := filepath.Join(dir, "model.yaml")
+	content := `
+model: gpt-4o
+official:
+  name: Test
+  url: https://api.openai.com/v1
+  key: sk-test
+  provider: anthropic
+channels:
+  - name: ch1
+    url: https://api.xxx.com/v1
+    key: sk-x
+    provider: openai
+`
+	if err := os.WriteFile(path, []byte(content), 0644); err != nil {
+		t.Fatal(err)
+	}
+	m, err := config.LoadModel(path)
+	if err != nil {
+		t.Fatalf("unexpected error: %v", err)
+	}
+	if m.Official.Provider != "anthropic" {
+		t.Errorf("official provider: got %q, want anthropic", m.Official.Provider)
+	}
+	if m.Channels[0].Provider != "openai" {
+		t.Errorf("channel provider: got %q, want openai", m.Channels[0].Provider)
+	}
+}

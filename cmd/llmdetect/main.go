@@ -2,6 +2,7 @@ package main
 
 import (
 	"context"
+	"errors"
 	"fmt"
 	"os"
 	"path/filepath"
@@ -15,6 +16,7 @@ import (
 	"github.com/ironarmor/llmdetect/internal/cache"
 	"github.com/ironarmor/llmdetect/internal/detector"
 	"github.com/ironarmor/llmdetect/internal/online"
+	"github.com/ironarmor/llmdetect/internal/provider"
 	"github.com/ironarmor/llmdetect/internal/report"
 	"github.com/ironarmor/llmdetect/tokens"
 )
@@ -93,10 +95,26 @@ func cmdRefreshCache() *cobra.Command {
 			cfg, model := loadBoth()
 			tokenList := tokens.Load()
 			ctx := context.Background()
+			timeout := time.Duration(cfg.Concurrency.TimeoutSeconds) * time.Second
+
+			// Detect or load provider for the official API.
+			var a provider.Adapter
+			var err error
+			if model.Official.Provider != "" {
+				a, err = provider.AdapterFromType(provider.ProviderType(model.Official.Provider))
+			} else {
+				a, err = provider.Detect(ctx, model.Official.URL, model.Official.Key,
+					model.Model, flagModel, model.Official.URL, timeout)
+			}
+			if err != nil {
+				fmt.Fprintf(os.Stderr, "detect official provider: %v\n", err)
+				os.Exit(1)
+			}
+
+			officialClient := api.NewClientFull(model.Official.URL, model.Official.Key,
+				cfg.Concurrency.TimeoutSeconds, cfg.Concurrency.MaxRetries, a, nil)
 
 			fmt.Println("Discovering border inputs from official API...")
-			officialClient := api.NewClient(model.Official.URL, model.Official.Key,
-				cfg.Concurrency.TimeoutSeconds, cfg.Concurrency.MaxRetries)
 			result, err := detector.Discover(ctx, cfg, model, tokenList, officialClient)
 			if err != nil {
 				fmt.Fprintf(os.Stderr, "discovery failed: %v\n", err)
@@ -134,13 +152,53 @@ func cmdDetect() *cobra.Command {
 			cfg, model := loadBoth()
 			ctx := context.Background()
 			startTime := time.Now()
+			timeout := time.Duration(cfg.Concurrency.TimeoutSeconds) * time.Second
+			ledger := api.NewTokenLedger()
 
-			// Step 1: online-check
-			all := append([]config.Endpoint{model.Official}, model.Channels...)
-			newClientDefault := func(ep config.Endpoint) *api.Client {
-				return api.NewClient(ep.URL, ep.Key, cfg.Concurrency.TimeoutSeconds, 1)
+			// Resolve adapter per endpoint (from YAML or via probe).
+			// Endpoints that are undetectable are skipped.
+			allEps := append([]config.Endpoint{model.Official}, model.Channels...)
+			adapters := make(map[string]provider.Adapter, len(allEps))
+			for _, ep := range allEps {
+				var a provider.Adapter
+				var err error
+				if ep.Provider != "" {
+					a, err = provider.AdapterFromType(provider.ProviderType(ep.Provider))
+				} else {
+					a, err = provider.Detect(ctx, ep.URL, ep.Key, model.Model, flagModel, ep.URL, timeout)
+				}
+				if errors.Is(err, provider.ErrProviderUndetectable) {
+					fmt.Fprintf(os.Stderr, "warning: provider undetectable for %s, treating as offline\n", ep.URL)
+					continue
+				}
+				if err != nil {
+					fmt.Fprintf(os.Stderr, "warning: detect provider for %s: %v\n", ep.URL, err)
+					continue
+				}
+				adapters[ep.URL] = a
 			}
-			onlineResults := online.CheckAll(cfg, model.Model, all, newClientDefault)
+
+			// clientFor creates a Client with the detected adapter and the shared ledger.
+			clientFor := func(ep config.Endpoint) *api.Client {
+				a, ok := adapters[ep.URL]
+				if !ok {
+					a = &provider.OpenAIAdapter{}
+				}
+				return api.NewClientFull(ep.URL, ep.Key,
+					cfg.Concurrency.TimeoutSeconds, cfg.Concurrency.MaxRetries, a, ledger)
+			}
+
+			// Step 1: online-check.
+			// Uses detected adapters (via clientFor) so Anthropic endpoints are checked correctly.
+			onlineCheckFactory := func(ep config.Endpoint) *api.Client {
+				a, ok := adapters[ep.URL]
+				if !ok {
+					a = &provider.OpenAIAdapter{}
+				}
+				return api.NewClientFull(ep.URL, ep.Key, cfg.Concurrency.TimeoutSeconds, 1, a, nil)
+			}
+			onlineResults := online.CheckAll(cfg, model.Model, allEps, onlineCheckFactory)
+
 			var onlineChannels []config.Endpoint
 			officialURL := model.Official.URL
 			for _, r := range onlineResults {
@@ -149,41 +207,57 @@ func cmdDetect() *cobra.Command {
 				}
 			}
 
-			// Step 2: load or refresh cache
+			// Check official API is reachable.
+			officialOnline := false
+			for _, r := range onlineResults {
+				if r.Endpoint.URL == officialURL && r.Online {
+					officialOnline = true
+				}
+			}
+
+			// Step 2: load or refresh cache.
 			c := cache.New(cachePath(flagModel))
 			var cf *cache.CacheFile
 			cacheStale := false
 			cacheAgeMinutes := 0
 
 			if c.IsExpired() {
-				tokenList := tokens.Load()
-				officialClient := api.NewClient(model.Official.URL, model.Official.Key,
-					cfg.Concurrency.TimeoutSeconds, cfg.Concurrency.MaxRetries)
-				result, err := detector.Discover(ctx, cfg, model, tokenList, officialClient)
-				if err != nil {
-					// stale cache fallback
+				if !officialOnline {
 					old, loadErr := c.Load()
 					if loadErr != nil {
-						fmt.Fprintf(os.Stderr, "refresh failed and no stale cache: %v\n", err)
+						fmt.Fprintf(os.Stderr, "official API offline and no stale cache available\n")
 						os.Exit(1)
 					}
 					cf = old
 					cacheStale = true
 					cacheAgeMinutes = int(time.Since(old.CreatedAt).Minutes())
-					fmt.Fprintf(os.Stderr, "Warning: refresh failed (%v), using stale cache (%d min old)\n",
-						err, cacheAgeMinutes)
+					fmt.Fprintf(os.Stderr, "Warning: official API offline, using stale cache (%d min old)\n", cacheAgeMinutes)
 				} else {
-					now := time.Now().UTC()
-					cf = &cache.CacheFile{
-						Model:        model.Model,
-						OfficialURL:  model.Official.URL,
-						CreatedAt:    now,
-						ExpiresAt:    now.Add(time.Duration(cfg.Cache.TTLHours) * time.Hour),
-						BorderInputs: result.BorderInputs,
-					}
-					if err := c.Save(cf); err != nil {
-						fmt.Fprintf(os.Stderr, "save cache: %v\n", err)
-						// continue with the in-memory result
+					tokenList := tokens.Load()
+					officialClient := clientFor(model.Official)
+					result, err := detector.Discover(ctx, cfg, model, tokenList, officialClient)
+					if err != nil {
+						old, loadErr := c.Load()
+						if loadErr != nil {
+							fmt.Fprintf(os.Stderr, "refresh failed and no stale cache: %v\n", err)
+							os.Exit(1)
+						}
+						cf = old
+						cacheStale = true
+						cacheAgeMinutes = int(time.Since(old.CreatedAt).Minutes())
+						fmt.Fprintf(os.Stderr, "Warning: refresh failed (%v), using stale cache (%d min old)\n", err, cacheAgeMinutes)
+					} else {
+						now := time.Now().UTC()
+						cf = &cache.CacheFile{
+							Model:        model.Model,
+							OfficialURL:  model.Official.URL,
+							CreatedAt:    now,
+							ExpiresAt:    now.Add(time.Duration(cfg.Cache.TTLHours) * time.Hour),
+							BorderInputs: result.BorderInputs,
+						}
+						if err := c.Save(cf); err != nil {
+							fmt.Fprintf(os.Stderr, "save cache: %v\n", err)
+						}
 					}
 				}
 			} else {
@@ -195,15 +269,11 @@ func cmdDetect() *cobra.Command {
 				}
 			}
 
-			// Step 3: probe channels
-			probeResults := detector.ProbeChannels(ctx, cfg, model, onlineChannels, cf.BorderInputs,
-				func(ep config.Endpoint) *api.Client {
-					return api.NewClient(ep.URL, ep.Key, cfg.Concurrency.TimeoutSeconds, cfg.Concurrency.MaxRetries)
-				})
+			// Step 3: probe channels with per-channel adapters and shared ledger.
+			probeResults := detector.ProbeChannels(ctx, cfg, model, onlineChannels, cf.BorderInputs, clientFor)
 
 			duration := time.Since(startTime).Seconds()
 
-			// Channels only (strip official from onlineResults display)
 			channelOnlineResults := make([]online.Result, 0, len(onlineResults)-1)
 			for _, r := range onlineResults {
 				if r.Endpoint.URL != officialURL {
@@ -222,6 +292,7 @@ func cmdDetect() *cobra.Command {
 				CacheAgeMinutes:   cacheAgeMinutes,
 				OnlineResults:     channelOnlineResults,
 				ProbeResults:      probeResults,
+				Ledger:            ledger,
 			}
 
 			report.PrintSummary(params, cfg)

@@ -8,6 +8,7 @@ import (
 	"time"
 
 	"github.com/ironarmor/llmdetect/config"
+	"github.com/ironarmor/llmdetect/internal/api"
 	"github.com/ironarmor/llmdetect/internal/detector"
 	"github.com/ironarmor/llmdetect/internal/online"
 )
@@ -49,6 +50,7 @@ type ReportParams struct {
 	CacheAgeMinutes   int
 	OnlineResults     []online.Result
 	ProbeResults      []detector.ChannelResult
+	Ledger            *api.TokenLedger
 }
 
 func WriteJSON(params ReportParams, dir string) (string, error) {

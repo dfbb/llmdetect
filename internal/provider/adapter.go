@@ -1,13 +1,16 @@
 package provider
 
-import "fmt"
+import (
+	"fmt"
+	"strings"
+)
 
 type ProviderType string
 
 const (
-	ProviderOpenAI      ProviderType = "openai"
-	ProviderAnthropic   ProviderType = "anthropic"
-	ProviderClaudeCode  ProviderType = "claude-code"
+	ProviderOpenAI     ProviderType = "openai"
+	ProviderAnthropic  ProviderType = "anthropic"
+	ProviderClaudeCode ProviderType = "claude-code"
 )
 
 // TokenUsage holds token consumption for a single API call.
@@ -39,4 +42,19 @@ func AdapterFromType(p ProviderType) (Adapter, error) {
 	default:
 		return nil, fmt.Errorf("unknown provider %q: valid values are openai, anthropic, claude-code", p)
 	}
+}
+
+// MaybeUpgradeToClaudeCode replaces a plain AnthropicAdapter with ClaudeCodeAdapter
+// when the model name starts with "claude". All other adapters are returned unchanged.
+// This ensures Claude models are always queried with the full Claude Code fingerprint.
+//
+// Note: Detect() writes "anthropic" to the YAML before this upgrade runs, so the
+// persisted provider value stays "anthropic". On the next run AdapterFromType returns
+// AnthropicAdapter again, and this function upgrades it once more — correct behavior
+// at runtime, but the YAML will never reflect "claude-code" for auto-detected endpoints.
+func MaybeUpgradeToClaudeCode(a Adapter, modelName string) Adapter {
+	if _, ok := a.(*AnthropicAdapter); ok && strings.HasPrefix(strings.ToLower(modelName), "claude") {
+		return &ClaudeCodeAdapter{}
+	}
+	return a
 }

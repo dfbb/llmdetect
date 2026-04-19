@@ -25,6 +25,7 @@ import (
 var (
 	flagModel  string
 	flagConfig string
+	flagDebug  bool
 )
 
 func main() {
@@ -34,6 +35,7 @@ func main() {
 	}
 	root.PersistentFlags().StringVarP(&flagModel, "file", "f", "", "model YAML file (required)")
 	root.PersistentFlags().StringVarP(&flagConfig, "config", "c", "./config.yaml", "config YAML file")
+	root.PersistentFlags().BoolVar(&flagDebug, "debug", false, "print request headers and response status for each API call")
 
 	root.AddCommand(cmdOnlineCheck(), cmdRefreshCache(), cmdDetect())
 
@@ -73,8 +75,45 @@ func cmdOnlineCheck() *cobra.Command {
 		Run: func(cmd *cobra.Command, args []string) {
 			cfg, model := loadBoth()
 			all := append([]config.Endpoint{model.Official}, model.Channels...)
+			timeout := time.Duration(cfg.Concurrency.TimeoutSeconds) * time.Second
+
+			// Detect provider for each endpoint (needed for correct auth headers).
+			ctx := context.Background()
+			adapters := make(map[string]provider.Adapter, len(all))
+			var mu sync.Mutex
+			var wg sync.WaitGroup
+			for _, ep := range all {
+				wg.Add(1)
+				go func(ep config.Endpoint) {
+					defer wg.Done()
+					var a provider.Adapter
+					var err error
+					if ep.Provider != "" {
+						a, err = provider.AdapterFromType(provider.ProviderType(ep.Provider))
+					} else {
+						a, err = provider.Detect(ctx, ep.URL, ep.Key, model.Model, flagModel, ep.URL, timeout)
+					}
+					if err != nil {
+						a = &provider.OpenAIAdapter{}
+					}
+					a = provider.MaybeUpgradeToClaudeCode(a, model.Model)
+					mu.Lock()
+					adapters[ep.URL+ep.Key] = a
+					mu.Unlock()
+				}(ep)
+			}
+			wg.Wait()
+
 			newClient := func(ep config.Endpoint) *api.Client {
-				return api.NewClient(ep.URL, ep.Key, cfg.Concurrency.TimeoutSeconds, 1)
+				a := adapters[ep.URL+ep.Key]
+				if a == nil {
+					a = &provider.OpenAIAdapter{}
+				}
+				c := api.NewClientFull(ep.URL, ep.Key, cfg.Concurrency.TimeoutSeconds, 1, a, nil)
+				if flagDebug {
+					c.SetDebug(os.Stderr)
+				}
+				return c
 			}
 			results := online.CheckAll(cfg, model.Model, all, newClient)
 			for _, r := range results {
@@ -115,6 +154,9 @@ func cmdRefreshCache() *cobra.Command {
 
 			officialClient := api.NewClientFull(model.Official.URL, model.Official.Key,
 				cfg.Concurrency.TimeoutSeconds, cfg.Concurrency.MaxRetries, a, nil)
+			if flagDebug {
+				officialClient.SetDebug(os.Stderr)
+			}
 
 			fmt.Println("Discovering border inputs from official API...")
 			result, err := detector.Discover(ctx, cfg, model, tokenList, officialClient)
@@ -199,13 +241,21 @@ func cmdDetect() *cobra.Command {
 
 			// clientFor creates a Client with the detected adapter and the shared ledger.
 			clientFor := func(ep config.Endpoint) *api.Client {
-				return api.NewClientFull(ep.URL, ep.Key,
+				c := api.NewClientFull(ep.URL, ep.Key,
 					cfg.Concurrency.TimeoutSeconds, cfg.Concurrency.MaxRetries, adapterFor(ep), ledger)
+				if flagDebug {
+					c.SetDebug(os.Stderr)
+				}
+				return c
 			}
 
 			// Uses detected adapters so Anthropic endpoints are checked correctly.
 			onlineCheckFactory := func(ep config.Endpoint) *api.Client {
-				return api.NewClientFull(ep.URL, ep.Key, cfg.Concurrency.TimeoutSeconds, 1, adapterFor(ep), nil)
+				c := api.NewClientFull(ep.URL, ep.Key, cfg.Concurrency.TimeoutSeconds, 1, adapterFor(ep), nil)
+				if flagDebug {
+					c.SetDebug(os.Stderr)
+				}
+				return c
 			}
 			onlineResults := online.CheckAll(cfg, model.Model, allEps, onlineCheckFactory)
 

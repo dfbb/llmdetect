@@ -1,127 +1,155 @@
 package provider
 
 import (
+	"encoding/json"
 	"strings"
 	"testing"
 )
 
 func TestClaudeCodeAdapter_Type(t *testing.T) {
-	a := NewClaudeCodeAdapter()
+	a := &ClaudeCodeAdapter{}
 	if a.Type() != ProviderAnthropic {
-		t.Fatalf("want ProviderAnthropic, got %q", a.Type())
+		t.Fatalf("expected anthropic, got %s", a.Type())
 	}
 }
 
 func TestClaudeCodeAdapter_RequestPath(t *testing.T) {
-	a := NewClaudeCodeAdapter()
+	a := &ClaudeCodeAdapter{}
 	if a.RequestPath() != "/v1/messages" {
-		t.Fatalf("want /v1/messages, got %q", a.RequestPath())
+		t.Fatalf("unexpected path: %s", a.RequestPath())
 	}
 }
 
 func TestClaudeCodeAdapter_Headers(t *testing.T) {
-	a := NewClaudeCodeAdapter()
-	h := a.Headers("sk-test-key")
+	a := &ClaudeCodeAdapter{}
+	h := a.Headers("sk-test")
 
-	check := func(key, want string) {
-		t.Helper()
-		got, ok := h[key]
-		if !ok {
-			t.Errorf("header %q missing", key)
-			return
-		}
-		if want != "" && got != want {
-			t.Errorf("header %q: want %q, got %q", key, want, got)
-		}
+	if !strings.HasPrefix(h["Authorization"], "Bearer ") {
+		t.Errorf("Authorization must be Bearer, got: %s", h["Authorization"])
 	}
-
-	check("x-api-key", "sk-test-key")
-	check("anthropic-version", "2023-06-01")
-	check("User-Agent", "claude-cli/"+claudeCodeVersion)
-	check("x-app", "cli")
-
-	// anthropic-beta must contain the known beta flags
-	beta := h["anthropic-beta"]
-	for _, flag := range []string{
-		"interleaved-thinking-2025-05-14",
-		"token-efficient-tools-2025-02-19",
-	} {
-		if !strings.Contains(beta, flag) {
-			t.Errorf("anthropic-beta missing %q, got %q", flag, beta)
-		}
+	if !strings.HasPrefix(h["User-Agent"], "claude-cli/") {
+		t.Errorf("User-Agent must start with claude-cli/, got: %s", h["User-Agent"])
 	}
-
-	// cch= header must be present and have the right format
-	cch, ok := h["x-anthropic-billing-header"]
-	if !ok {
-		t.Fatal("x-anthropic-billing-header missing")
+	if h["x-app"] != "cli" {
+		t.Errorf("x-app must be cli, got: %s", h["x-app"])
 	}
-	if !strings.HasPrefix(cch, "cch=") {
-		t.Fatalf("x-anthropic-billing-header must start with cch=, got %q", cch)
+	if h["anthropic-version"] != "2023-06-01" {
+		t.Errorf("anthropic-version wrong: %s", h["anthropic-version"])
 	}
-	suffix := strings.TrimPrefix(cch, "cch=")
-	if len(suffix) != 5 {
-		t.Fatalf("cch suffix must be 5 chars, got %d: %q", len(suffix), suffix)
+	if !strings.Contains(h["anthropic-beta"], "claude-code-20250219") {
+		t.Errorf("anthropic-beta missing claude-code-20250219: %s", h["anthropic-beta"])
 	}
-	for _, c := range suffix {
-		if !strings.ContainsRune("0123456789abcdef", c) {
-			t.Fatalf("cch suffix must be lowercase hex, got %q", suffix)
-		}
-	}
-}
-
-func TestClaudeCodeAdapter_CCH_DeterministicPerInstance(t *testing.T) {
-	a := NewClaudeCodeAdapter()
-	first := a.computeCCH()
-	second := a.computeCCH()
-	if first != second {
-		t.Errorf("cch must be deterministic per adapter instance: %q vs %q", first, second)
-	}
-}
-
-func TestClaudeCodeAdapter_CCH_UniqueAcrossInstances(t *testing.T) {
-	seen := make(map[string]bool)
-	for i := 0; i < 20; i++ {
-		a := NewClaudeCodeAdapter()
-		seen[a.computeCCH()] = true
-	}
-	// With 20 random nonces and 2^20 possible values, collisions are very rare.
-	if len(seen) < 10 {
-		t.Errorf("cch values not sufficiently unique across instances: %v", seen)
+	if h["X-Stainless-Lang"] != "js" {
+		t.Errorf("X-Stainless-Lang wrong: %s", h["X-Stainless-Lang"])
 	}
 }
 
 func TestClaudeCodeAdapter_BuildRequest(t *testing.T) {
-	a := NewClaudeCodeAdapter()
-	b, err := a.BuildRequest("claude-3-5-sonnet-20241022", "hello", 1)
+	a := &ClaudeCodeAdapter{}
+	body, err := a.BuildRequest("claude-opus-4-5", "hello world", 1)
 	if err != nil {
-		t.Fatal(err)
+		t.Fatalf("BuildRequest error: %v", err)
 	}
-	if len(b) == 0 {
-		t.Fatal("empty request body")
+
+	var req ccRequest
+	if err := json.Unmarshal(body, &req); err != nil {
+		t.Fatalf("unmarshal error: %v", err)
+	}
+
+	if req.Model != "claude-opus-4-5" {
+		t.Errorf("model wrong: %s", req.Model)
+	}
+	if len(req.Messages) != 1 || req.Messages[0].Role != "user" {
+		t.Errorf("messages wrong: %+v", req.Messages)
+	}
+	if len(req.System) < 2 {
+		t.Fatalf("system must have at least 2 blocks, got %d", len(req.System))
+	}
+	// First block: billing header
+	if !strings.Contains(req.System[0].Text, "x-anthropic-billing-header") {
+		t.Errorf("first system block must be billing header, got: %s", req.System[0].Text)
+	}
+	if !strings.Contains(req.System[0].Text, "cc_entrypoint=cli") {
+		t.Errorf("billing header missing cc_entrypoint=cli: %s", req.System[0].Text)
+	}
+	// Second block: Claude Code identity
+	if !strings.Contains(req.System[1].Text, "Claude Code") {
+		t.Errorf("second system block must identify as Claude Code: %s", req.System[1].Text)
+	}
+	if req.Thinking.Type != "adaptive" {
+		t.Errorf("thinking.type wrong: %s", req.Thinking.Type)
+	}
+	if req.OutputConfig.Effort != "medium" {
+		t.Errorf("output_config.effort wrong: %s", req.OutputConfig.Effort)
+	}
+	if req.Metadata.UserID == "" {
+		t.Error("metadata.user_id must not be empty")
 	}
 }
 
-func TestClaudeCodeAdapter_BuildRequestWithAntiDistillation(t *testing.T) {
-	a := NewClaudeCodeAdapter()
-	b, err := a.BuildRequestWithAntiDistillation("claude-3-5-sonnet-20241022", "hello", 1)
+func TestClaudeCodeAdapter_ParseResponse(t *testing.T) {
+	a := &ClaudeCodeAdapter{}
+	body := []byte(`{
+		"content": [{"type": "text", "text": "hello"}],
+		"usage": {"input_tokens": 10, "output_tokens": 5}
+	}`)
+	tok, usage, err := a.ParseResponse(body)
 	if err != nil {
-		t.Fatal(err)
+		t.Fatalf("ParseResponse error: %v", err)
 	}
-	if !strings.Contains(string(b), "anti_distillation") {
-		t.Errorf("expected anti_distillation in body, got: %s", b)
+	if tok != "hello" {
+		t.Errorf("token wrong: %s", tok)
 	}
-	if !strings.Contains(string(b), "fake_tools") {
-		t.Errorf("expected fake_tools in anti_distillation, got: %s", b)
+	if usage.PromptTokens != 10 || usage.CompletionTokens != 5 || usage.TotalTokens != 15 {
+		t.Errorf("usage wrong: %+v", usage)
 	}
 }
 
 func TestAdapterFromType_ClaudeCode(t *testing.T) {
 	a, err := AdapterFromType(ProviderClaudeCode)
 	if err != nil {
-		t.Fatal(err)
+		t.Fatalf("AdapterFromType error: %v", err)
 	}
 	if _, ok := a.(*ClaudeCodeAdapter); !ok {
-		t.Fatalf("want *ClaudeCodeAdapter, got %T", a)
+		t.Errorf("expected *ClaudeCodeAdapter, got %T", a)
+	}
+}
+
+func TestComputeBillingHeader(t *testing.T) {
+	h := computeBillingHeader("hello world test prompt input", "2.1.81")
+	if !strings.HasPrefix(h, "x-anthropic-billing-header:") {
+		t.Errorf("unexpected prefix: %s", h)
+	}
+	if !strings.Contains(h, "cch=") {
+		t.Errorf("missing cch= in header: %s", h)
+	}
+	if !strings.Contains(h, "cc_version=2.1.81.") {
+		t.Errorf("missing cc_version: %s", h)
+	}
+	// Deterministic for same input
+	h2 := computeBillingHeader("hello world test prompt input", "2.1.81")
+	if h != h2 {
+		t.Error("billing header must be deterministic")
+	}
+}
+
+func TestGenerateUserID(t *testing.T) {
+	uid := generateUserID()
+	if uid == "" {
+		t.Fatal("user ID must not be empty")
+	}
+	var parsed map[string]string
+	if err := json.Unmarshal([]byte(uid), &parsed); err != nil {
+		t.Fatalf("user ID must be valid JSON: %v", err)
+	}
+	if parsed["device_id"] == "" {
+		t.Error("device_id missing")
+	}
+	if parsed["session_id"] == "" {
+		t.Error("session_id missing")
+	}
+	uid2 := generateUserID()
+	if uid == uid2 {
+		t.Error("user IDs should be unique")
 	}
 }

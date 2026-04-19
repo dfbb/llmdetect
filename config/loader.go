@@ -12,10 +12,10 @@ func validateEndpointProvider(ep Endpoint, label string) error {
 		return nil
 	}
 	switch ep.Provider {
-	case "openai", "anthropic", "claudecode":
+	case "openai", "anthropic", "claude-code":
 		return nil
 	default:
-		return fmt.Errorf("endpoint %q has invalid provider %q: must be openai, anthropic, or claudecode", label, ep.Provider)
+		return fmt.Errorf("endpoint %q has invalid provider %q: must be openai or anthropic", label, ep.Provider)
 	}
 }
 

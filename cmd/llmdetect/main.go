@@ -225,14 +225,14 @@ func cmdDetect() *cobra.Command {
 						return
 					}
 					adaptersMu.Lock()
-					adapters[ep.URL] = a
+					adapters[ep.URL+ep.Key] = a
 					adaptersMu.Unlock()
 				}(ep)
 			}
 			adapterWg.Wait()
 
 			adapterFor := func(ep config.Endpoint) provider.Adapter {
-				a, ok := adapters[ep.URL]
+				a, ok := adapters[ep.URL+ep.Key]
 				if !ok {
 					return &provider.OpenAIAdapter{}
 				}

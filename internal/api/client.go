@@ -7,6 +7,7 @@ import (
 	"io"
 	"math"
 	"net/http"
+	"strings"
 	"time"
 
 	"github.com/ironarmor/llmdetect/internal/provider"
@@ -40,12 +41,39 @@ func NewClientFull(baseURL, apiKey string, timeoutSeconds, maxRetries int, a pro
 }
 
 // SetDebug enables debug logging to w for every request this client makes.
+// Must be called before the client is shared across goroutines.
 func (c *Client) SetDebug(w io.Writer) { c.debugOut = w }
 
 func (c *Client) debugf(format string, args ...any) {
 	if c.debugOut != nil {
 		fmt.Fprintf(c.debugOut, "[debug] "+format+"\n", args...)
 	}
+}
+
+// redactHeader masks the sensitive portion of auth header values.
+// For "Bearer <token>" the token is redacted; for raw keys the whole value is redacted.
+func redactHeader(key, val string) string {
+	switch key {
+	case "Authorization":
+		const prefix = "Bearer "
+		if strings.HasPrefix(val, prefix) {
+			tok := val[len(prefix):]
+			if len(tok) > 8 {
+				return prefix + tok[:4] + "..." + tok[len(tok)-4:]
+			}
+			return val
+		}
+		if len(val) > 8 {
+			return val[:4] + "..." + val[len(val)-4:]
+		}
+		return val
+	case "x-api-key":
+		if len(val) > 8 {
+			return val[:4] + "..." + val[len(val)-4:]
+		}
+		return val
+	}
+	return val
 }
 
 // QueryOnce sends a single request using the client's adapter and returns the output token.
@@ -58,18 +86,6 @@ func (c *Client) QueryOnce(ctx context.Context, model, prompt string) (string, e
 
 	url := c.baseURL + c.adapter.RequestPath()
 	c.debugf("adapter=%s  url=%s", c.adapter.Type(), url)
-	if c.debugOut != nil {
-		hdrs := c.adapter.Headers(c.apiKey)
-		for k, v := range hdrs {
-			// Redact key values
-			if k == "x-api-key" || k == "Authorization" {
-				if len(v) > 12 {
-					v = v[:8] + "..." + v[len(v)-4:]
-				}
-			}
-			fmt.Fprintf(c.debugOut, "[debug]   %s: %s\n", k, v)
-		}
-	}
 
 	var lastErr error
 	for attempt := 0; attempt <= c.maxRetries; attempt++ {
@@ -82,11 +98,18 @@ func (c *Client) QueryOnce(ctx context.Context, model, prompt string) (string, e
 			}
 		}
 
+		hdrs := c.adapter.Headers(c.apiKey)
+		if c.debugOut != nil {
+			for k, v := range hdrs {
+				c.debugf("  %s: %s", k, redactHeader(k, v))
+			}
+		}
+
 		req, err := http.NewRequestWithContext(ctx, http.MethodPost, url, bytes.NewReader(body))
 		if err != nil {
 			return "", err
 		}
-		for k, v := range c.adapter.Headers(c.apiKey) {
+		for k, v := range hdrs {
 			req.Header.Set(k, v)
 		}
 

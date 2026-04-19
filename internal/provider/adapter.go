@@ -37,6 +37,6 @@ func AdapterFromType(p ProviderType) (Adapter, error) {
 	case ProviderClaudeCode:
 		return &ClaudeCodeAdapter{}, nil
 	default:
-		return nil, fmt.Errorf("unknown provider %q: valid values are openai, anthropic", p)
+		return nil, fmt.Errorf("unknown provider %q: valid values are openai, anthropic, claude-code", p)
 	}
 }

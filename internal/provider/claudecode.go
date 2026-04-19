@@ -34,7 +34,7 @@ func fetchLatestCLIVersion() string {
 		return ""
 	}
 	defer resp.Body.Close()
-	b, err := io.ReadAll(io.LimitReader(resp.Body, 4096))
+	b, err := io.ReadAll(io.LimitReader(resp.Body, 16384))
 	if err != nil || resp.StatusCode != 200 {
 		return ""
 	}
@@ -49,13 +49,15 @@ func fetchLatestCLIVersion() string {
 	return v
 }
 
+var fetchCLIVersion = fetchLatestCLIVersion
+
 func cliVersion() string {
 	versionCache.mu.Lock()
 	defer versionCache.mu.Unlock()
 	if versionCache.version != "" && time.Since(versionCache.fetchedAt) < versionTTL {
 		return versionCache.version
 	}
-	if v := fetchLatestCLIVersion(); v != "" {
+	if v := fetchCLIVersion(); v != "" {
 		versionCache.version = v
 		versionCache.fetchedAt = time.Now()
 		return v
@@ -83,11 +85,15 @@ func computeBillingHeader(messageText, version string) string {
 
 func generateUserID() string {
 	b := make([]byte, 32)
-	_, _ = rand.Read(b)
+	if _, err := rand.Read(b); err != nil {
+		panic("crypto/rand unavailable: " + err.Error())
+	}
 	deviceID := hex.EncodeToString(b)
 	sb := make([]byte, 16)
-	_, _ = rand.Read(sb)
-	sessionID := fmt.Sprintf("%08x-%04x-%04x-%04x-%012x",
+	if _, err := rand.Read(sb); err != nil {
+		panic("crypto/rand unavailable: " + err.Error())
+	}
+	sessionID := fmt.Sprintf("%x-%x-%x-%x-%x",
 		sb[0:4], sb[4:6], sb[6:8], sb[8:10], sb[10:16])
 	uid, _ := json.Marshal(map[string]string{
 		"device_id":    deviceID,
@@ -102,7 +108,7 @@ func generateUserID() string {
 // gate access to authenticated Claude Code clients.
 type ClaudeCodeAdapter struct{}
 
-func (a *ClaudeCodeAdapter) Type() ProviderType  { return ProviderAnthropic }
+func (a *ClaudeCodeAdapter) Type() ProviderType  { return ProviderClaudeCode }
 func (a *ClaudeCodeAdapter) RequestPath() string { return "/v1/messages" }
 
 func (a *ClaudeCodeAdapter) Headers(apiKey string) map[string]string {

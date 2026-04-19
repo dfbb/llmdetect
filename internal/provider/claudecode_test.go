@@ -2,14 +2,23 @@ package provider
 
 import (
 	"encoding/json"
+	"os"
 	"strings"
 	"testing"
 )
 
+func TestMain(m *testing.M) {
+	// Prevent network calls during tests by injecting a fixed version.
+	fetchCLIVersion = func() string { return "2.1.112" }
+	// Reset version cache so tests start from a clean state.
+	versionCache.version = ""
+	os.Exit(m.Run())
+}
+
 func TestClaudeCodeAdapter_Type(t *testing.T) {
 	a := &ClaudeCodeAdapter{}
-	if a.Type() != ProviderAnthropic {
-		t.Fatalf("expected anthropic, got %s", a.Type())
+	if a.Type() != ProviderClaudeCode {
+		t.Fatalf("expected claude-code, got %s", a.Type())
 	}
 }
 

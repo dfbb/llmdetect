@@ -8,10 +8,8 @@ import (
 )
 
 func TestMain(m *testing.M) {
-	// Prevent network calls during tests by injecting a fixed version.
 	fetchCLIVersion = func() string { return "2.1.112" }
-	// Reset version cache so tests start from a clean state.
-	versionCache.version = ""
+	versionOnce.Do(func() { cachedCLIVersion = "2.1.112" })
 	os.Exit(m.Run())
 }
 
@@ -74,14 +72,12 @@ func TestClaudeCodeAdapter_BuildRequest(t *testing.T) {
 	if len(req.System) < 2 {
 		t.Fatalf("system must have at least 2 blocks, got %d", len(req.System))
 	}
-	// First block: billing header
 	if !strings.Contains(req.System[0].Text, "x-anthropic-billing-header") {
 		t.Errorf("first system block must be billing header, got: %s", req.System[0].Text)
 	}
 	if !strings.Contains(req.System[0].Text, "cc_entrypoint=cli") {
 		t.Errorf("billing header missing cc_entrypoint=cli: %s", req.System[0].Text)
 	}
-	// Second block: Claude Code identity
 	if !strings.Contains(req.System[1].Text, "Claude Code") {
 		t.Errorf("second system block must identify as Claude Code: %s", req.System[1].Text)
 	}
@@ -135,7 +131,6 @@ func TestComputeBillingHeader(t *testing.T) {
 	if !strings.Contains(h, "cc_version=2.1.81.") {
 		t.Errorf("missing cc_version: %s", h)
 	}
-	// Deterministic for same input
 	h2 := computeBillingHeader("hello world test prompt input", "2.1.81")
 	if h != h2 {
 		t.Error("billing header must be deterministic")

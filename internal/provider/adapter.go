@@ -5,8 +5,9 @@ import "fmt"
 type ProviderType string
 
 const (
-	ProviderOpenAI    ProviderType = "openai"
-	ProviderAnthropic ProviderType = "anthropic"
+	ProviderOpenAI      ProviderType = "openai"
+	ProviderAnthropic   ProviderType = "anthropic"
+	ProviderClaudeCode  ProviderType = "claudecode" // Anthropic API with Claude Code client fingerprint
 )
 
 // TokenUsage holds token consumption for a single API call.
@@ -33,7 +34,9 @@ func AdapterFromType(p ProviderType) (Adapter, error) {
 		return &OpenAIAdapter{}, nil
 	case ProviderAnthropic:
 		return &AnthropicAdapter{}, nil
+	case ProviderClaudeCode:
+		return NewClaudeCodeAdapter(), nil
 	default:
-		return nil, fmt.Errorf("unknown provider %q: valid values are openai, anthropic", p)
+		return nil, fmt.Errorf("unknown provider %q: valid values are openai, anthropic, claudecode", p)
 	}
 }

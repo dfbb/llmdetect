@@ -14,8 +14,8 @@ import (
 
 const (
 	billingSalt    = "59cf53e54c78"
-	defaultVersion = "2.1.81"
-	versionTTL     = time.Hour
+	defaultVersion = "2.1.112"
+	versionTTL     = 7 * 24 * time.Hour
 )
 
 var versionCache struct {

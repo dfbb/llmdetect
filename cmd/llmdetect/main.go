@@ -111,6 +111,10 @@ func cmdRefreshCache() *cobra.Command {
 				fmt.Fprintf(os.Stderr, "detect official provider: %v\n", err)
 				os.Exit(1)
 			}
+			if _, isAnthropic := a.(*provider.AnthropicAdapter); isAnthropic &&
+				strings.HasPrefix(strings.ToLower(model.Model), "claude") {
+				a = &provider.ClaudeCodeAdapter{}
+			}
 
 			officialClient := api.NewClientFull(model.Official.URL, model.Official.Key,
 				cfg.Concurrency.TimeoutSeconds, cfg.Concurrency.MaxRetries, a, nil)
@@ -189,10 +193,17 @@ func cmdDetect() *cobra.Command {
 			adapterWg.Wait()
 
 			adapterFor := func(ep config.Endpoint) provider.Adapter {
-				if a, ok := adapters[ep.URL]; ok {
-					return a
+				a, ok := adapters[ep.URL]
+				if !ok {
+					return &provider.OpenAIAdapter{}
 				}
-				return &provider.OpenAIAdapter{}
+				// Auto-upgrade plain Anthropic adapter to ClaudeCode fingerprint
+				// when the model name starts with "claude".
+				if _, isAnthropic := a.(*provider.AnthropicAdapter); isAnthropic &&
+					strings.HasPrefix(strings.ToLower(model.Model), "claude") {
+					return &provider.ClaudeCodeAdapter{}
+				}
+				return a
 			}
 
 			// clientFor creates a Client with the detected adapter and the shared ledger.

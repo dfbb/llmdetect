@@ -7,6 +7,7 @@ import (
 	"os"
 	"path/filepath"
 	"strings"
+	"sync"
 	"time"
 
 	"github.com/spf13/cobra"
@@ -159,63 +160,64 @@ func cmdDetect() *cobra.Command {
 			// Endpoints that are undetectable are skipped.
 			allEps := append([]config.Endpoint{model.Official}, model.Channels...)
 			adapters := make(map[string]provider.Adapter, len(allEps))
+			var adaptersMu sync.Mutex
+			var adapterWg sync.WaitGroup
 			for _, ep := range allEps {
-				var a provider.Adapter
-				var err error
-				if ep.Provider != "" {
-					a, err = provider.AdapterFromType(provider.ProviderType(ep.Provider))
-				} else {
-					a, err = provider.Detect(ctx, ep.URL, ep.Key, model.Model, flagModel, ep.URL, timeout)
+				adapterWg.Add(1)
+				go func(ep config.Endpoint) {
+					defer adapterWg.Done()
+					var a provider.Adapter
+					var err error
+					if ep.Provider != "" {
+						a, err = provider.AdapterFromType(provider.ProviderType(ep.Provider))
+					} else {
+						a, err = provider.Detect(ctx, ep.URL, ep.Key, model.Model, flagModel, ep.URL, timeout)
+					}
+					if errors.Is(err, provider.ErrProviderUndetectable) {
+						fmt.Fprintf(os.Stderr, "warning: provider undetectable for %s, treating as offline\n", ep.URL)
+						return
+					}
+					if err != nil {
+						fmt.Fprintf(os.Stderr, "warning: detect provider for %s: %v\n", ep.URL, err)
+						return
+					}
+					adaptersMu.Lock()
+					adapters[ep.URL] = a
+					adaptersMu.Unlock()
+				}(ep)
+			}
+			adapterWg.Wait()
+
+			adapterFor := func(ep config.Endpoint) provider.Adapter {
+				if a, ok := adapters[ep.URL]; ok {
+					return a
 				}
-				if errors.Is(err, provider.ErrProviderUndetectable) {
-					fmt.Fprintf(os.Stderr, "warning: provider undetectable for %s, treating as offline\n", ep.URL)
-					continue
-				}
-				if err != nil {
-					fmt.Fprintf(os.Stderr, "warning: detect provider for %s: %v\n", ep.URL, err)
-					continue
-				}
-				adapters[ep.URL] = a
+				return &provider.OpenAIAdapter{}
 			}
 
 			// clientFor creates a Client with the detected adapter and the shared ledger.
 			clientFor := func(ep config.Endpoint) *api.Client {
-				a, ok := adapters[ep.URL]
-				if !ok {
-					a = &provider.OpenAIAdapter{}
-				}
 				return api.NewClientFull(ep.URL, ep.Key,
-					cfg.Concurrency.TimeoutSeconds, cfg.Concurrency.MaxRetries, a, ledger)
+					cfg.Concurrency.TimeoutSeconds, cfg.Concurrency.MaxRetries, adapterFor(ep), ledger)
 			}
 
-			// Step 1: online-check.
-			// Uses detected adapters (via clientFor) so Anthropic endpoints are checked correctly.
+			// Uses detected adapters so Anthropic endpoints are checked correctly.
 			onlineCheckFactory := func(ep config.Endpoint) *api.Client {
-				a, ok := adapters[ep.URL]
-				if !ok {
-					a = &provider.OpenAIAdapter{}
-				}
-				return api.NewClientFull(ep.URL, ep.Key, cfg.Concurrency.TimeoutSeconds, 1, a, nil)
+				return api.NewClientFull(ep.URL, ep.Key, cfg.Concurrency.TimeoutSeconds, 1, adapterFor(ep), nil)
 			}
 			onlineResults := online.CheckAll(cfg, model.Model, allEps, onlineCheckFactory)
 
 			var onlineChannels []config.Endpoint
 			officialURL := model.Official.URL
+			officialOnline := false
 			for _, r := range onlineResults {
-				if r.Online && r.Endpoint.URL != officialURL {
+				if r.Endpoint.URL == officialURL {
+					officialOnline = r.Online
+				} else if r.Online {
 					onlineChannels = append(onlineChannels, r.Endpoint)
 				}
 			}
 
-			// Check official API is reachable.
-			officialOnline := false
-			for _, r := range onlineResults {
-				if r.Endpoint.URL == officialURL && r.Online {
-					officialOnline = true
-				}
-			}
-
-			// Step 2: load or refresh cache.
 			c := cache.New(cachePath(flagModel))
 			var cf *cache.CacheFile
 			cacheStale := false
@@ -269,7 +271,6 @@ func cmdDetect() *cobra.Command {
 				}
 			}
 
-			// Step 3: probe channels with per-channel adapters and shared ledger.
 			probeResults := detector.ProbeChannels(ctx, cfg, model, onlineChannels, cf.BorderInputs, clientFor)
 
 			duration := time.Since(startTime).Seconds()

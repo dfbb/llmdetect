@@ -11,6 +11,7 @@ import (
 	"github.com/ironarmor/llmdetect/config"
 	"github.com/ironarmor/llmdetect/internal/api"
 	"github.com/ironarmor/llmdetect/internal/detector"
+	"github.com/ironarmor/llmdetect/internal/provider"
 )
 
 var (
@@ -104,7 +105,13 @@ func PrintTokenSummary(ledger *api.TokenLedger) {
 	if len(snap) == 0 {
 		return
 	}
-	total := ledger.Total()
+
+	var total provider.TokenUsage
+	for _, u := range snap {
+		total.PromptTokens += u.PromptTokens
+		total.CompletionTokens += u.CompletionTokens
+		total.TotalTokens += u.TotalTokens
+	}
 
 	innerSep := strings.Repeat("─", 70)
 

@@ -1,4 +1,3 @@
-// internal/provider/adapter.go
 package provider
 
 import "fmt"

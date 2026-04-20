@@ -89,14 +89,22 @@ func cmdOnlineCheck() *cobra.Command {
 					var a provider.Adapter
 					var err error
 					if ep.Provider != "" {
-						a, err = provider.AdapterFromType(provider.ProviderType(ep.Provider))
+						a, err = provider.AdapterFromTypeWithExtrahack(provider.ProviderType(ep.Provider), ep.Extrahack)
 					} else {
 						a, err = provider.Detect(ctx, ep.URL, ep.Key, model.Model, flagModel, ep.URL, timeout)
 					}
 					if err != nil {
-						a = &provider.OpenAIAdapter{}
+						if strings.HasPrefix(strings.ToLower(model.Model), "claude") {
+							cc := &provider.ClaudeCodeAdapter{}
+							if ep.Extrahack {
+								cc.ExtraSystem = provider.SSAIExtraSystem
+							}
+							a = cc
+						} else {
+							a = &provider.OpenAIAdapter{}
+						}
 					}
-					a = provider.MaybeUpgradeToClaudeCode(a, model.Model)
+					a = provider.MaybeUpgradeToClaudeCodeWithExtrahack(a, model.Model, ep.Extrahack)
 					mu.Lock()
 					adapters[ep.URL+ep.Key] = a
 					mu.Unlock()
@@ -141,7 +149,7 @@ func cmdRefreshCache() *cobra.Command {
 			var a provider.Adapter
 			var err error
 			if model.Official.Provider != "" {
-				a, err = provider.AdapterFromType(provider.ProviderType(model.Official.Provider))
+				a, err = provider.AdapterFromTypeWithExtrahack(provider.ProviderType(model.Official.Provider), model.Official.Extrahack)
 			} else {
 				a, err = provider.Detect(ctx, model.Official.URL, model.Official.Key,
 					model.Model, flagModel, model.Official.URL, timeout)
@@ -150,7 +158,7 @@ func cmdRefreshCache() *cobra.Command {
 				fmt.Fprintf(os.Stderr, "detect official provider: %v\n", err)
 				os.Exit(1)
 			}
-			a = provider.MaybeUpgradeToClaudeCode(a, model.Model)
+			a = provider.MaybeUpgradeToClaudeCodeWithExtrahack(a, model.Model, model.Official.Extrahack)
 
 			officialClient := api.NewClientFull(model.Official.URL, model.Official.Key,
 				cfg.Concurrency.TimeoutSeconds, cfg.Concurrency.MaxRetries, a, nil)
@@ -212,7 +220,7 @@ func cmdDetect() *cobra.Command {
 					var a provider.Adapter
 					var err error
 					if ep.Provider != "" {
-						a, err = provider.AdapterFromType(provider.ProviderType(ep.Provider))
+						a, err = provider.AdapterFromTypeWithExtrahack(provider.ProviderType(ep.Provider), ep.Extrahack)
 					} else {
 						a, err = provider.Detect(ctx, ep.URL, ep.Key, model.Model, flagModel, ep.URL, timeout)
 					}
@@ -236,7 +244,7 @@ func cmdDetect() *cobra.Command {
 				if !ok {
 					return &provider.OpenAIAdapter{}
 				}
-				return provider.MaybeUpgradeToClaudeCode(a, model.Model)
+				return provider.MaybeUpgradeToClaudeCodeWithExtrahack(a, model.Model, ep.Extrahack)
 			}
 
 			// clientFor creates a Client with the detected adapter and the shared ledger.
@@ -260,10 +268,10 @@ func cmdDetect() *cobra.Command {
 			onlineResults := online.CheckAll(cfg, model.Model, allEps, onlineCheckFactory)
 
 			var onlineChannels []config.Endpoint
-			officialURL := model.Official.URL
+			officialID := model.Official.URL + model.Official.Key
 			officialOnline := false
 			for _, r := range onlineResults {
-				if r.Endpoint.URL == officialURL {
+				if r.Endpoint.URL+r.Endpoint.Key == officialID {
 					officialOnline = r.Online
 				} else if r.Online {
 					onlineChannels = append(onlineChannels, r.Endpoint)
@@ -329,7 +337,7 @@ func cmdDetect() *cobra.Command {
 
 			channelOnlineResults := make([]online.Result, 0, len(onlineResults)-1)
 			for _, r := range onlineResults {
-				if r.Endpoint.URL != officialURL {
+				if r.Endpoint.URL+r.Endpoint.Key != officialID {
 					channelOnlineResults = append(channelOnlineResults, r)
 				}
 			}

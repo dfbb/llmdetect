@@ -1,2 +1,4 @@
 llmdetect
 *.cache
+models/*
+example

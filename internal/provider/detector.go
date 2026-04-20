@@ -16,7 +16,7 @@ import (
 
 // ErrProviderUndetectable is returned when neither OpenAI nor Anthropic format
 // returns HTTP 200 from the target endpoint.
-var ErrProviderUndetectable = errors.New("provider undetectable: neither openai nor anthropic format responded with 200")
+var ErrProviderUndetectable = errors.New("provider undetectable: no supported format responded with 200")
 
 var yamlMu sync.Mutex
 
@@ -31,11 +31,20 @@ func Detect(ctx context.Context, baseURL, apiKey, model, yamlPath, endpointURL s
 
 	client := &http.Client{Timeout: timeout}
 
-	for _, a := range []Adapter{&OpenAIAdapter{}, &AnthropicAdapter{}} {
+	// For claude models, prefer ClaudeCode over OpenAI so servers that gate on
+	// the Claude Code fingerprint are detected correctly.
+	var probes []Adapter
+	if strings.HasPrefix(strings.ToLower(model), "claude") {
+		probes = []Adapter{&ClaudeCodeAdapter{}, &OpenAIAdapter{}, &AnthropicAdapter{}}
+	} else {
+		probes = []Adapter{&OpenAIAdapter{}, &AnthropicAdapter{}}
+	}
+
+	for _, a := range probes {
 		if probeAdapter(ctx, client, baseURL, apiKey, model, a) {
 			if yamlPath != "" {
 				yamlMu.Lock()
-				if err := writeProviderToYAML(yamlPath, endpointURL, a.Type()); err != nil {
+				if err := writeProviderToYAML(yamlPath, endpointURL, apiKey, a.Type()); err != nil {
 					fmt.Fprintf(os.Stderr, "warning: could not write provider to %s: %v\n", yamlPath, err)
 				}
 				yamlMu.Unlock()
@@ -66,9 +75,9 @@ func probeAdapter(ctx context.Context, client *http.Client, baseURL, apiKey, mod
 	return resp.StatusCode == http.StatusOK
 }
 
-// writeProviderToYAML updates the provider field of the endpoint with matching URL in yamlPath.
+// writeProviderToYAML updates the provider field of the endpoint matching URL+key in yamlPath.
 // Preserves all other fields, ordering, and comments using yaml.Node.
-func writeProviderToYAML(yamlPath, endpointURL string, p ProviderType) error {
+func writeProviderToYAML(yamlPath, endpointURL, apiKey string, p ProviderType) error {
 	data, err := os.ReadFile(yamlPath)
 	if err != nil {
 		return err
@@ -80,7 +89,7 @@ func writeProviderToYAML(yamlPath, endpointURL string, p ProviderType) error {
 	if len(root.Content) == 0 {
 		return fmt.Errorf("empty YAML document in %s", yamlPath)
 	}
-	if !setProviderInNode(root.Content[0], endpointURL, string(p)) {
+	if !setProviderInNode(root.Content[0], endpointURL, apiKey, string(p)) {
 		return fmt.Errorf("endpoint URL %s not found in %s", endpointURL, yamlPath)
 	}
 	out, err := yaml.Marshal(&root)
@@ -90,25 +99,36 @@ func writeProviderToYAML(yamlPath, endpointURL string, p ProviderType) error {
 	return os.WriteFile(yamlPath, out, 0644)
 }
 
-// setProviderInNode recursively walks node looking for a mapping with url==targetURL,
-// then adds or updates its provider field. Returns true if found.
-func setProviderInNode(node *yaml.Node, targetURL, providerVal string) bool {
+// setProviderInNode recursively walks node looking for a mapping with url==targetURL
+// AND key==targetKey, then adds or updates its provider field. Returns true if found.
+// Both URL and key must match to correctly identify endpoints sharing the same URL.
+func setProviderInNode(node *yaml.Node, targetURL, targetKey, providerVal string) bool {
 	switch node.Kind {
 	case yaml.MappingNode:
+		urlMatch := false
+		keyMatch := false
 		for i := 0; i+1 < len(node.Content); i += 2 {
-			if node.Content[i].Value == "url" && node.Content[i+1].Value == targetURL {
-				setMappingKey(node, "provider", providerVal)
-				return true
+			k := node.Content[i].Value
+			v := node.Content[i+1].Value
+			if k == "url" && v == targetURL {
+				urlMatch = true
+			}
+			if k == "key" && v == targetKey {
+				keyMatch = true
 			}
 		}
+		if urlMatch && keyMatch {
+			setMappingKey(node, "provider", providerVal)
+			return true
+		}
 		for i := 1; i < len(node.Content); i += 2 {
-			if setProviderInNode(node.Content[i], targetURL, providerVal) {
+			if setProviderInNode(node.Content[i], targetURL, targetKey, providerVal) {
 				return true
 			}
 		}
 	case yaml.SequenceNode:
 		for _, child := range node.Content {
-			if setProviderInNode(child, targetURL, providerVal) {
+			if setProviderInNode(child, targetURL, targetKey, providerVal) {
 				return true
 			}
 		}

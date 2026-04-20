@@ -30,10 +30,11 @@ type Config struct {
 }
 
 type Endpoint struct {
-	Name     string `yaml:"name"`
-	URL      string `yaml:"url"`
-	Key      string `yaml:"key"`
-	Provider string `yaml:"provider,omitempty"`
+	Name      string `yaml:"name"`
+	URL       string `yaml:"url"`
+	Key       string `yaml:"key"`
+	Provider  string `yaml:"provider,omitempty"`
+	Extrahack bool   `yaml:"extrahack,omitempty"`
 }
 
 type ModelConfig struct {

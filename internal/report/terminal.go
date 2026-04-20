@@ -55,7 +55,7 @@ func PrintSummary(params ReportParams, cfg *config.Config) {
 
 	probeMap := make(map[string]detector.ChannelResult)
 	for _, r := range params.ProbeResults {
-		probeMap[r.Endpoint.URL] = r
+		probeMap[r.Endpoint.URL+r.Endpoint.Key] = r
 	}
 
 	fmt.Printf("%s\n%s\n", bold("Detection Results"), separator)
@@ -65,7 +65,7 @@ func PrintSummary(params ReportParams, cfg *config.Config) {
 		if !or_.Online {
 			continue
 		}
-		pr, ok := probeMap[or_.Endpoint.URL]
+		pr, ok := probeMap[or_.Endpoint.URL+or_.Endpoint.Key]
 		if !ok {
 			continue
 		}

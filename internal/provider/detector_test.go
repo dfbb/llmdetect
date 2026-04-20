@@ -57,13 +57,37 @@ func TestDetect_Anthropic(t *testing.T) {
 	}))
 	defer srv.Close()
 
+	// non-claude model → plain Anthropic adapter expected
 	a, err := provider.Detect(context.Background(),
-		srv.URL, "sk-ant-test", "claude-3-5-sonnet-20241022", "", srv.URL, time.Second)
+		srv.URL, "sk-ant-test", "my-custom-model", "", srv.URL, time.Second)
 	if err != nil {
 		t.Fatalf("Detect: %v", err)
 	}
 	if a.Type() != provider.ProviderAnthropic {
 		t.Errorf("got %v, want anthropic", a.Type())
+	}
+}
+
+func TestDetect_ClaudeCodePreferred(t *testing.T) {
+	// For claude models, ClaudeCode probe is tried first; a server that accepts
+	// /v1/messages should be detected as claude-code, not plain anthropic.
+	srv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		if r.URL.Path == "/v1/messages" {
+			w.Header().Set("Content-Type", "application/json")
+			w.Write([]byte(`{"content":[{"type":"text","text":"hi"}]}`))
+			return
+		}
+		http.Error(w, "not found", http.StatusNotFound)
+	}))
+	defer srv.Close()
+
+	a, err := provider.Detect(context.Background(),
+		srv.URL, "sk-ant-test", "claude-3-5-sonnet-20241022", "", srv.URL, time.Second)
+	if err != nil {
+		t.Fatalf("Detect: %v", err)
+	}
+	if a.Type() != provider.ProviderClaudeCode {
+		t.Errorf("got %v, want claude-code", a.Type())
 	}
 }
 

@@ -151,7 +151,7 @@ func (c *Client) QueryOnce(ctx context.Context, model, prompt string) (string, e
 
 		token, usage, err := c.adapter.ParseResponse(b)
 		if err != nil {
-			c.debugf("parse error: %v", err)
+			c.debugf("parse error: %v | body: %s", err, truncate(string(b), 300))
 			lastErr = err
 			continue
 		}
@@ -163,10 +163,48 @@ func (c *Client) QueryOnce(ctx context.Context, model, prompt string) (string, e
 	return "", fmt.Errorf("all retries failed: %w", lastErr)
 }
 
+// pingMaxTokens is large enough for gateways that enforce a minimum token budget
+// (e.g. when thinking is present). Response body is discarded, so this is safe.
+const pingMaxTokens = 100
+
 // Ping sends a minimal request and returns true if the endpoint responds with HTTP 200.
+// Body parsing is skipped — HTTP 200 alone is sufficient for a liveness check.
 func (c *Client) Ping(ctx context.Context, model string) bool {
-	_, err := c.QueryOnce(ctx, model, "hi")
-	return err == nil
+	body, err := c.adapter.BuildRequest(model, "hi", pingMaxTokens)
+	if err != nil {
+		return false
+	}
+	url := c.baseURL + c.adapter.RequestPath()
+	c.debugf("ping adapter=%s  url=%s", c.adapter.Type(), url)
+	c.debugf("ping body: %s", truncate(string(body), 500))
+	req, err := http.NewRequestWithContext(ctx, http.MethodPost, url, bytes.NewReader(body))
+	if err != nil {
+		return false
+	}
+	hdrs := c.adapter.Headers(c.apiKey)
+	if c.debugOut != nil {
+		for k, v := range hdrs {
+			c.debugf("  %s: %s", k, redactHeader(k, v))
+		}
+	}
+	for k, v := range hdrs {
+		req.Header.Set(k, v)
+	}
+	resp, err := c.http.Do(req)
+	if err != nil {
+		c.debugf("ping error: %v", err)
+		return false
+	}
+	c.debugf("ping HTTP %d", resp.StatusCode)
+	if resp.StatusCode != http.StatusOK {
+		b, _ := io.ReadAll(io.LimitReader(resp.Body, 300))
+		resp.Body.Close()
+		c.debugf("ping non-200 body: %s", string(b))
+		return false
+	}
+	io.Copy(io.Discard, resp.Body)
+	resp.Body.Close()
+	return resp.StatusCode == http.StatusOK
 }
 
 func truncate(s string, n int) string {

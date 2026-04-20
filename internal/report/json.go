@@ -69,7 +69,7 @@ func WriteJSON(params ReportParams, dir string) (string, error) {
 
 	probeMap := make(map[string]detector.ChannelResult)
 	for _, r := range params.ProbeResults {
-		probeMap[r.Endpoint.URL] = r
+		probeMap[r.Endpoint.URL+r.Endpoint.Key] = r
 	}
 
 	var results []JSONChannelResult
@@ -80,7 +80,7 @@ func WriteJSON(params ReportParams, dir string) (string, error) {
 			Online: or_.Online,
 		}
 		if or_.Online {
-			if pr, ok := probeMap[or_.Endpoint.URL]; ok {
+			if pr, ok := probeMap[or_.Endpoint.URL+or_.Endpoint.Key]; ok {
 				tv := pr.TVDistance
 				cr.TVDistance = &tv
 				cr.Verdict = pr.Verdict

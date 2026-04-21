@@ -3,3 +3,4 @@ llmdetect
 *.cache
 models/*
 example
+reports

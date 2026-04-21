@@ -1,0 +1,97 @@
+{
+  "model": "claude-sonnet-4-6",
+  "run_at": "2026-04-20T17:38:54.954143+08:00",
+  "duration_seconds": 1729.076954459,
+  "config": {
+    "border_inputs": 20,
+    "queries_per_input": 30,
+    "tv_threshold": 0.4
+  },
+  "border_inputs_found": 9,
+  "results": [
+    {
+      "name": "foxcode-ultra",
+      "url": "https://claude.kg83.org/api",
+      "online": true,
+      "tv_distance": 1,
+      "verdict": "spoofed",
+      "per_input_tv": [
+        1,
+        0.9999999999999999,
+        1,
+        1,
+        1,
+        0.9999999999999998,
+        1.0000000000000002,
+        1,
+        1
+      ],
+      "tokens_used": {
+        "prompt": 15860,
+        "completion": 15467,
+        "total": 31327
+      }
+    },
+    {
+      "name": "foxcode-cx2cc",
+      "url": "https://claude.kg83.org/api",
+      "online": true,
+      "tv_distance": 1.0000000000000002,
+      "verdict": "spoofed",
+      "per_input_tv": [
+        1,
+        1,
+        0.9999999999999998,
+        1.0000000000000007,
+        1,
+        0.9999999999999998,
+        0.9999999999999998,
+        1.0000000000000002,
+        1.0000000000000002
+      ],
+      "tokens_used": {
+        "prompt": 15860,
+        "completion": 15467,
+        "total": 31327
+      }
+    },
+    {
+      "name": "kimi",
+      "url": "https://claude.kg83.org/api",
+      "online": false,
+      "tv_distance": null,
+      "verdict": "offline"
+    },
+    {
+      "name": "foxcode-official",
+      "url": "https://claude.kg83.org/api",
+      "online": true,
+      "tv_distance": 0.14776495432038272,
+      "verdict": "original",
+      "per_input_tv": [
+        0.24867724867724866,
+        0.006993006993006985,
+        0.08985507246376812,
+        0.2136752136752137,
+        0.24999999999999994,
+        0.2484472049689441,
+        0.07330827067669171,
+        0.19642857142857145,
+        0.0024999999999999745
+      ],
+      "tokens_used": {
+        "prompt": 15860,
+        "completion": 15467,
+        "total": 31327
+      }
+    }
+  ],
+  "token_summary": {
+    "https://claude.kg83.org/api": {
+      "prompt": 15860,
+      "completion": 15467,
+      "total": 31327
+    }
+  },
+  "total_tokens": 31327
+}

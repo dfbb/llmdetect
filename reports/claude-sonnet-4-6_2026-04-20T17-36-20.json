@@ -1,0 +1,13 @@
+{
+  "model": "claude-sonnet-4-6",
+  "run_at": "2026-04-20T17:36:20.12565+08:00",
+  "duration_seconds": 27.58444275,
+  "config": {
+    "border_inputs": 20,
+    "queries_per_input": 30,
+    "tv_threshold": 0.4
+  },
+  "border_inputs_found": 9,
+  "results": null,
+  "total_tokens": 0
+}
